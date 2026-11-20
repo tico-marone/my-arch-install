@@ -10,6 +10,8 @@ import shlex
 import subprocess
 import time
 
+from . import __version__
+
 
 DEFAULT_LOG_PATH = Path("/tmp/my-arch-install.log")
 
@@ -44,8 +46,8 @@ class CommandRunner:
     def _init_log(self) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         header = (
-            f"=== my-arch-install session started {datetime.now().isoformat()} "
-            f"(dry_run={self.dry_run}) ===\n"
+            f"=== my-arch-install v{__version__} session started "
+            f"{datetime.now().isoformat()} (dry_run={self.dry_run}) ===\n"
         )
         self.log_path.write_text(header, encoding="utf-8")
 

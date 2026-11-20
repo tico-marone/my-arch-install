@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import re
+import shlex
 import shutil
 import time
 
@@ -300,7 +301,16 @@ class ArchInstaller:
         self.runner.run(["mount", root_part, str(TARGET_ROOT)])
 
         self._emit(idx, StepState.RUNNING, f"Mounting {esp_part} to {TARGET_BOOT}...", task_percent=80.0)
-        self.runner.run(["mount", "--mkdir", esp_part, str(TARGET_BOOT)])
+        self.runner.run(
+            [
+                "mount",
+                "--mkdir",
+                "-o",
+                "uid=0,gid=0,fmask=0077,dmask=0077",
+                esp_part,
+                str(TARGET_BOOT),
+            ]
+        )
 
     def _step_pacstrap_packages(self, idx: int) -> None:
         packages = self.config.all_packages(self.catalog.required_names)
@@ -481,11 +491,7 @@ class ArchInstaller:
                     f"{username} ALL=(ALL:ALL) NOPASSWD: ALL\n",
                     mode=0o440,
                 )
-                self.runner.arch_chroot(
-                    TARGET_ROOT,
-                    ["install", "-d", "-m", "0755", "-o", username, "-g", username, "/tmp/my-arch-install-aur"],
-                )
-                build_script = (
+                user_build_cmd = (
                     "set -euo pipefail; "
                     "cd /tmp/my-arch-install-aur; "
                     f"git clone --depth 1 https://aur.archlinux.org/{aur_pkg}.git; "
@@ -494,16 +500,32 @@ class ArchInstaller:
                     "export RUSTUP_HOME=/tmp/my-arch-install-aur/rustup; "
                     "makepkg -sirc --noconfirm"
                 )
+                # Run directory creation and makepkg inside a single arch-chroot invocation
+                # so both share the same ephemeral /tmp tmpfs mount.
+                chroot_script = (
+                    "set -euo pipefail; "
+                    "trap 'rm -rf /tmp/my-arch-install-aur' EXIT; "
+                    f"install -d -m 0755 -o {shlex.quote(username)} -g {shlex.quote(username)} /tmp/my-arch-install-aur; "
+                    f"su -s /bin/bash {shlex.quote(username)} -c {shlex.quote(user_build_cmd)}"
+                )
                 self.runner.arch_chroot(
                     TARGET_ROOT,
-                    ["su", "-s", "/bin/bash", username, "-c", build_script],
+                    ["bash", "-c", chroot_script],
+                    on_line=lambda line: self._emit(
+                        idx,
+                        StepState.RUNNING,
+                        f"Building and installing {aur_pkg}...",
+                        task_percent=40.0,
+                        log_line=line,
+                    ),
                 )
             finally:
                 self._emit(idx, StepState.RUNNING, "Cleaning temporary AUR build files...", task_percent=60.0)
                 if not self.runner.dry_run:
                     if temp_sudoers.exists():
                         temp_sudoers.unlink()
-                    self.runner.run(["rm", "-rf", str(build_dir_target)])
+                    if build_dir_target.exists():
+                        self.runner.run(["rm", "-rf", str(build_dir_target)])
 
         self._emit(idx, StepState.RUNNING, "Removing orphan packages if present...", task_percent=75.0)
         if not self.runner.dry_run:

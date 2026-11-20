@@ -28,6 +28,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from .. import __version__
 from ..installer import STEP_TITLES, ArchInstaller
 from ..models import (
     DiskInfo,
@@ -64,6 +65,10 @@ if TYPE_CHECKING:
     from .app import MyArchInstallApp
 
 
+def _window_title(section: str) -> str:
+    return f"my-arch-install v{__version__}  |  {section}"
+
+
 def _badges_text(app: MyArchInstallApp) -> str:
     mode_tag = "[DRY-RUN] " if app.dry_run else ""
     return f"{mode_tag}[UEFI] [ext4] [linux-zen]"
@@ -93,7 +98,7 @@ class PreflightScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 1/7: Pre-flight Check", id="header-title")
+                yield Static(_window_title("Step 1/7: Pre-flight Check"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -211,7 +216,7 @@ class LocalizationScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 2/7: Localization", id="header-title")
+                yield Static(_window_title("Step 2/7: Localization"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -340,7 +345,7 @@ class IdentityScreen(Screen[None]):
         cfg = self.installer_app.config
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 3/7: System Identity", id="header-title")
+                yield Static(_window_title("Step 3/7: System Identity"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -474,7 +479,7 @@ class DiskScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 4/7: Target Disk", id="header-title")
+                yield Static(_window_title("Step 4/7: Target Disk"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -627,7 +632,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
         cfg = self.installer_app.config
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 5/7: System, Pacman & Mirrors", id="header-title")
+                yield Static(_window_title("Step 5/7: Options & Mirrors"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -838,7 +843,7 @@ class PackagesScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 6/7: Packages & Search", id="header-title")
+                yield Static(_window_title("Step 6/7: Packages & Search"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -1197,7 +1202,7 @@ class SummaryScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
-                yield Static("my-arch-install  |  Step 7/7: Review & Confirm", id="header-title")
+                yield Static(_window_title("Step 7/7: Review & Confirm"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
             with Horizontal(id="grid-body"):
@@ -1283,7 +1288,7 @@ class InstallProgressScreen(Screen[None]):
         with Vertical(id="window-frame"):
             with Horizontal(id="window-header"):
                 yield Static(
-                    f"Installing Arch Linux  |  {disk_label} (ext4 / linux-zen)",
+                    _window_title(f"Installing to {disk_label} (ext4 / linux-zen)"),
                     id="header-title",
                 )
                 yield Static("00:00", id="header-badges")

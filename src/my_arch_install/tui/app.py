@@ -7,6 +7,7 @@ from typing import Literal
 
 from textual.app import App
 
+from .. import __version__
 from ..catalog import PackageCatalog, load_catalog
 from ..models import InstallConfig
 from ..runner import CommandRunner
@@ -20,7 +21,7 @@ ThemePreference = Literal["auto", "ansi-dark", "textual-dark"]
 class MyArchInstallApp(App[None]):
     """Centered responsive grid TUI installer for Arch Linux."""
 
-    TITLE = "my-arch-install"
+    TITLE = f"my-arch-install v{__version__}"
     CSS_PATH = Path(__file__).with_name("styles.tcss")
 
     def __init__(

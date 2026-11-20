@@ -213,7 +213,8 @@ def search_official_packages(
 
     conf_path = build_temp_pacman_conf(enable_multilib=enable_multilib)
     db_path = TEMP_PACMAN_DIR / "db"
-    if sync_first or not (db_path / "sync").exists():
+    needs_multilib_sync = enable_multilib and not (db_path / "sync" / "multilib.db").exists()
+    if sync_first or not (db_path / "sync").exists() or needs_multilib_sync:
         sync_temp_pacman_db(enable_multilib=enable_multilib)
 
     terms = cleaned.split()

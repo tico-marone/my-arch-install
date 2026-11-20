@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from my_arch_install import __version__
 from my_arch_install.catalog import load_catalog
 from my_arch_install.installer import (
     ArchInstaller,
@@ -178,6 +179,7 @@ class InstallerTests(unittest.TestCase):
                 hostname="arch-desktop",
                 username="alex",
                 user_password="secret",
+                aur_helper="paru",
                 target_disk=DiskInfo("sda", "/dev/sda", 256 * 1024**3, "SSD", "sata", False),
                 selected_curated_packages=set(catalog.default_selected_names),
                 custom_packages={
@@ -190,10 +192,18 @@ class InstallerTests(unittest.TestCase):
 
             self.assertTrue(any(e.overall_percent == 100.0 for e in events))
             cmds = "\n".join(runner.recorded_commands)
+            self.assertIn(
+                "mount --mkdir -o uid=0,gid=0,fmask=0077,dmask=0077 /dev/sda1 /mnt/boot",
+                cmds,
+            )
             self.assertIn("pacstrap -K /mnt filesystem", cmds)
             self.assertIn("arch-chroot -S /mnt bootctl install", cmds)
-            self.assertIn("CARGO_HOME=/tmp/my-arch-install-aur/cargo", cmds)
+            aur_chroots = [c for c in runner.recorded_commands if "my-arch-install-aur" in c]
+            self.assertEqual(len(aur_chroots), 1)
+            self.assertIn("arch-chroot -S /mnt bash -c", aur_chroots[0])
+            self.assertIn("CARGO_HOME=/tmp/my-arch-install-aur/cargo", aur_chroots[0])
             log_text = log_file.read_text(encoding="utf-8")
+            self.assertIn(f"my-arch-install v{__version__}", log_text)
             self.assertNotIn("secret", log_text)
             self.assertIn("[stdin redacted]", log_text)
 
