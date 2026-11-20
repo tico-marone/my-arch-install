@@ -27,7 +27,7 @@ from my_arch_install.pacman_ops import (
     parse_pacman_ss,
     parse_reflector_countries,
 )
-from my_arch_install.runner import CommandRunner
+from my_arch_install.runner import CommandError, CommandRunner, extract_error_summary
 from my_arch_install.system_probe import parse_locale_gen, parse_lsblk_disks, partition_paths
 
 
@@ -136,7 +136,29 @@ class PacmanOpsTests(unittest.TestCase):
         self.assertEqual(parse_reflector_countries(out), ["Indonesia", "United States"])
 
 
-class InstallerTests(unittest.TestCase):
+class RunnerAndInstallerTests(unittest.TestCase):
+    def test_error_summary_preserves_diagnostic_lines(self) -> None:
+        lines = [
+            "Compiling foo",
+            "error: No space left on device (os error 28)",
+            "==> ERROR: A failure occurred in build().",
+            "removing rust...",
+            "removing llvm...",
+            "removing lld...",
+            "removing libgit2...",
+            "removing llhttp...",
+            "removing compiler-rt...",
+            ":: Running post-transaction hooks...",
+            "(1/1) Arming ConditionNeedsUpdate...",
+        ]
+        summary = extract_error_summary(lines)
+        joined = "\n".join(summary)
+        self.assertIn("No space left on device", joined)
+        self.assertIn("A failure occurred in build().", joined)
+
+        err = CommandError("makepkg", 4, lines)
+        self.assertIn("No space left on device", str(err))
+
     def test_mkinitcpio_and_boot_templates(self) -> None:
         sample = "MODULES=()\nHOOKS=(base udev autodetect modconf kms keyboard keymap block filesystems fsck)\n"
         updated = configure_mkinitcpio_conf(sample)
@@ -201,7 +223,12 @@ class InstallerTests(unittest.TestCase):
             aur_chroots = [c for c in runner.recorded_commands if "my-arch-install-aur" in c]
             self.assertEqual(len(aur_chroots), 1)
             self.assertIn("arch-chroot -S /mnt bash -c", aur_chroots[0])
-            self.assertIn("CARGO_HOME=/tmp/my-arch-install-aur/cargo", aur_chroots[0])
+            self.assertIn("CARGO_HOME=/var/tmp/my-arch-install-aur/cargo", aur_chroots[0])
+            self.assertIn("OPTIONS+=(!debug)", aur_chroots[0])
+            self.assertIn(
+                "makepkg --config /var/tmp/my-arch-install-aur/makepkg.conf -sirc --noconfirm",
+                aur_chroots[0],
+            )
             log_text = log_file.read_text(encoding="utf-8")
             self.assertIn(f"my-arch-install v{__version__}", log_text)
             self.assertNotIn("secret", log_text)

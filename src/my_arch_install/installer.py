@@ -482,9 +482,13 @@ class ArchInstaller:
             aur_pkg = self.config.aur_helper
             username = self.config.username
             temp_sudoers = TARGET_ROOT / "etc" / "sudoers.d" / "99-my-arch-install-aur"
-            build_dir_target = TARGET_ROOT / "tmp" / "my-arch-install-aur"
+            # Use /var/tmp inside target root (ext4 disk-backed) rather than /tmp (RAM-capped tmpfs),
+            # then wipe it completely via both trap EXIT and Python's finally block.
+            chroot_build_dir = "/var/tmp/my-arch-install-aur"
+            build_dir_target = TARGET_ROOT / "var" / "tmp" / "my-arch-install-aur"
+            makepkg_cfg = f"{chroot_build_dir}/makepkg.conf"
 
-            self._emit(idx, StepState.RUNNING, f"Building and installing {aur_pkg} in /tmp...", task_percent=25.0)
+            self._emit(idx, StepState.RUNNING, f"Building and installing {aur_pkg}...", task_percent=25.0)
             try:
                 self.runner.write_file(
                     temp_sudoers,
@@ -493,19 +497,24 @@ class ArchInstaller:
                 )
                 user_build_cmd = (
                     "set -euo pipefail; "
-                    "cd /tmp/my-arch-install-aur; "
+                    f"cd {chroot_build_dir}; "
                     f"git clone --depth 1 https://aur.archlinux.org/{aur_pkg}.git; "
                     f"cd {aur_pkg}; "
-                    "export CARGO_HOME=/tmp/my-arch-install-aur/cargo; "
-                    "export RUSTUP_HOME=/tmp/my-arch-install-aur/rustup; "
-                    "makepkg -sirc --noconfirm"
+                    f"export CARGO_HOME={chroot_build_dir}/cargo; "
+                    f"export RUSTUP_HOME={chroot_build_dir}/rustup; "
+                    "export CARGO_INCREMENTAL=0; "
+                    f"makepkg --config {makepkg_cfg} -sirc --noconfirm"
                 )
-                # Run directory creation and makepkg inside a single arch-chroot invocation
-                # so both share the same ephemeral /tmp tmpfs mount.
                 chroot_script = (
                     "set -euo pipefail; "
-                    "trap 'rm -rf /tmp/my-arch-install-aur' EXIT; "
-                    f"install -d -m 0755 -o {shlex.quote(username)} -g {shlex.quote(username)} /tmp/my-arch-install-aur; "
+                    f"trap 'rm -rf {chroot_build_dir}' EXIT; "
+                    f"install -d -m 0755 -o {shlex.quote(username)} -g {shlex.quote(username)} {chroot_build_dir}; "
+                    "{\n"
+                    "  cat /etc/makepkg.conf\n"
+                    '  for f in /etc/makepkg.conf.d/*.conf; do if [ -r "$f" ]; then cat "$f"; fi; done\n'
+                    "  printf '\\nOPTIONS+=(!debug)\\n'\n"
+                    f"}} > {makepkg_cfg}; "
+                    f"chown {shlex.quote(username)}:{shlex.quote(username)} {makepkg_cfg}; "
                     f"su -s /bin/bash {shlex.quote(username)} -c {shlex.quote(user_build_cmd)}"
                 )
                 self.runner.arch_chroot(

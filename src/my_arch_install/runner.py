@@ -16,6 +16,23 @@ from . import __version__
 DEFAULT_LOG_PATH = Path("/tmp/my-arch-install.log")
 
 
+def extract_error_summary(lines: Sequence[str], *, tail_count: int = 8) -> list[str]:
+    """Extract key diagnostic error lines plus tail lines so cleanup output doesn't hide root cause."""
+    tail = list(lines[-tail_count:]) if lines else []
+    highlights: list[str] = []
+    seen: set[str] = set()
+    markers = ("error:", "==> error:", "no space left", "fatal:", "failed to ")
+    for line in lines:
+        lower = line.lower()
+        if any(m in lower for m in markers):
+            if line not in seen and line not in tail:
+                seen.add(line)
+                highlights.append(line)
+    if highlights:
+        return [*highlights[-6:], "---", *tail]
+    return tail
+
+
 class CommandError(RuntimeError):
     """Raised when an underlying system command fails."""
 
@@ -23,9 +40,10 @@ class CommandError(RuntimeError):
         self.command = command
         self.returncode = returncode
         self.tail_lines = tail_lines
-        tail_preview = "\n".join(tail_lines[-10:]) if tail_lines else "(no output)"
+        summary = extract_error_summary(tail_lines)
+        preview = "\n".join(summary) if summary else "(no output)"
         super().__init__(
-            f"Command failed (exit code {returncode}): {command}\n{tail_preview}"
+            f"Command failed (exit code {returncode}): {command}\n{preview}"
         )
 
 
@@ -103,11 +121,11 @@ class CommandRunner:
                     if on_line:
                         on_line(line)
             if proc.returncode != 0:
-                tail = (proc.stdout + "\n" + proc.stderr).strip().splitlines()[-15:]
+                tail = (proc.stdout + "\n" + proc.stderr).strip().splitlines()[-80:]
                 raise CommandError(cmd_str, proc.returncode, tail)
             return proc
 
-        tail_buffer: deque[str] = deque(maxlen=25)
+        tail_buffer: deque[str] = deque(maxlen=120)
         stdout_lines: list[str] = []
 
         process = subprocess.Popen(
