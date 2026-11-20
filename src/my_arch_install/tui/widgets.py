@@ -64,9 +64,9 @@ class CleanToggle(Widget, can_focus=True):
     def render(self) -> Text:
         text = Text()
         if self.value:
-            text.append("[ ON  ]", style="bold green")
+            text.append("[ ON  ]", style="bold bright_green")
         else:
-            text.append("[ OFF ]", style="bold red")
+            text.append("[ OFF ]", style="bold bright_red")
         text.append(f"  {self._label}")
         return text
 
@@ -110,7 +110,7 @@ class CleanProgressBar(Widget):
         width = max(24, self.size.width or 48)
         inner = max(8, width - 8)
         out = Text()
-        out.append("[", style="bold white")
+        out.append("[", style="bold bright_white")
         if self.total is None or self.total <= 0:
             seg = min(10, max(3, inner // 5))
             pos = self.pulse_step % max(1, inner - seg + 1)
@@ -120,16 +120,16 @@ class CleanProgressBar(Widget):
             rem = inner - pos - seg
             if rem > 0:
                 out.append(" " * rem, style="on bright_black")
-            out.append("]  ... ", style="bold white")
+            out.append("]  ... ", style="bold bright_white")
             return out
 
         ratio = max(0.0, min(1.0, self.progress / self.total))
         filled = round(inner * ratio)
         empty = max(0, inner - filled)
         if filled > 0:
-            out.append(" " * filled, style="on blue")
+            out.append(" " * filled, style="on green" if ratio >= 1.0 else "on blue")
         if empty > 0:
             out.append(" " * empty, style="on bright_black")
         pct_int = int(round(ratio * 100))
-        out.append(f"] {pct_int:3d}%", style="bold white")
+        out.append(f"] {pct_int:3d}%", style="bold bright_white")
         return out

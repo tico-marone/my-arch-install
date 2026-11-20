@@ -1,4 +1,4 @@
-"""Minimalist, arrow-navigable wizard, modal, and progress screens."""
+"""Minimalist, colorful, arrow-navigable wizard, modal, and progress screens."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ import subprocess
 import time
 from typing import TYPE_CHECKING
 
+from rich.text import Text
 from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, ContentSwitcher, Input, Label, Log, OptionList, Static
-from textual.widgets.option_list import Option
+from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from .. import __version__
 from ..installer import STEP_TITLES, ArchInstaller
@@ -32,6 +33,7 @@ from ..pacman_ops import (
     search_official_packages,
     sync_temp_pacman_db,
 )
+from ..runner import read_appended_log_lines
 from ..system_probe import (
     discover_disks,
     list_keymaps,
@@ -80,6 +82,14 @@ def _cycle_focus_buttons(screen: Screen[None], selectors: list[str], step: int) 
     return False
 
 
+def _badge_option_text(badge: str, badge_style: str, label: str) -> Text:
+    """Build a Rich Text prompt so OptionList never strips '[...]' as markup."""
+    t = Text("  ")
+    t.append(badge, style=badge_style)
+    t.append(f"  {label}")
+    return t
+
+
 # ---------------------------------------------------------------------------
 # Screen 1: Pre-flight Check
 # ---------------------------------------------------------------------------
@@ -107,7 +117,7 @@ class PreflightScreen(Screen[None]):
                 yield Static(_window_title("Step 1/7: Pre-flight"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with VerticalScroll(id="left-pane"):
                     yield Static("Environment Status", classes="pane-heading")
                     yield Static("Checking...", id="preflight-list")
@@ -127,7 +137,7 @@ class PreflightScreen(Screen[None]):
                     )
 
             with Horizontal(id="window-footer"):
-                yield Static("Left/Right: Select action   Enter: Confirm   R: Re-check   Q: Quit", id="footer-keys")
+                yield Static("Left/Right: Actions   Enter: Confirm   R: Re-check   Q: Quit", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("Quit", id="btn-quit")
                     yield Button("Re-check", id="btn-recheck")
@@ -159,21 +169,37 @@ class PreflightScreen(Screen[None]):
         status = run_preflight()
         self._status = status
 
-        def mark(ok: bool, warn: bool = False) -> str:
-            if ok:
-                return "[ OK ]"
-            return "[WARN]" if warn else "[FAIL]"
-
-        lines = [
-            f"{mark(status.is_uefi)}  UEFI Mode       {status.uefi_bitness}",
-            f"{mark(status.has_internet)}  Network         {'Online' if status.has_internet else 'Offline'}",
-            f"{mark(status.time_synced, warn=True)}  NTP Clock       {'Synced' if status.time_synced else 'Pending'}",
-            f"{mark(not status.reflector_service_active, warn=True)}  Boot Reflector  "
-            + ("Running" if status.reflector_service_active else "Idle"),
-            f"{mark(not status.missing_tools)}  Required Tools  "
-            + ("Present" if not status.missing_tools else f"Missing: {', '.join(status.missing_tools)}"),
+        rows = [
+            ("UEFI Mode", status.uefi_bitness, status.is_uefi, False),
+            ("Network", "Online" if status.has_internet else "Offline", status.has_internet, False),
+            ("NTP Clock", "Synced" if status.time_synced else "Pending", status.time_synced, True),
+            (
+                "Boot Reflector",
+                "Running" if status.reflector_service_active else "Idle",
+                not status.reflector_service_active,
+                True,
+            ),
+            (
+                "Required Tools",
+                "Present" if not status.missing_tools else f"Missing: {', '.join(status.missing_tools)}",
+                not status.missing_tools,
+                False,
+            ),
         ]
-        self.query_one("#preflight-list", Static).update("\n".join(lines))
+
+        text = Text()
+        for idx, (label, val, ok, warn) in enumerate(rows):
+            if ok:
+                text.append("[ OK ]", style="bold bright_green")
+            elif warn:
+                text.append("[WARN]", style="bold bright_yellow")
+            else:
+                text.append("[FAIL]", style="bold bright_red")
+            text.append(f"  {label:<16} {val}")
+            if idx < len(rows) - 1:
+                text.append("\n")
+
+        self.query_one("#preflight-list", Static).update(text)
 
         note = self.query_one("#preflight-note", Static)
         next_btn = self.query_one("#btn-next", Button)
@@ -234,7 +260,7 @@ class LocalizationScreen(Screen[None]):
                 yield Static(_window_title("Step 2/7: Localization"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with Vertical(id="left-pane"):
                     with Horizontal(id="tab-bar"):
                         yield Button("[1] Timezone", id="btn-tab-tz", classes="tab-btn active")
@@ -257,7 +283,7 @@ class LocalizationScreen(Screen[None]):
                     yield Static(self._render_inspector(), id="loc-inspector")
 
             with Horizontal(id="window-footer"):
-                yield Static("Up/Down: List   1/2/3: Tabs   /: Filter   Left/Right: Actions   Esc: Back", id="footer-keys")
+                yield Static("Up/Down: List   Space/Enter: Select   1/2/3: Tabs   /: Filter   Left/Right: Actions", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("<- Back", id="btn-back")
                     yield Button("Next ->", id="btn-next", variant="primary")
@@ -339,26 +365,51 @@ class LocalizationScreen(Screen[None]):
             self.query_one(self._active_list_id(), PackageOptionList).focus()
             event.stop()
 
+    @staticmethod
+    def _format_loc_prompt(item: str, is_selected: bool) -> Text:
+        if is_selected:
+            return _badge_option_text("[ * ]", "bold bright_green", item)
+        return _badge_option_text("[   ]", "white", item)
+
     def _populate_list(self, selector: str, items: list[str], query: str, current: str) -> None:
         ol = self.query_one(selector, PackageOptionList)
         ol.clear_options()
         q = query.strip().lower()
         filtered = [item for item in items if q in item.lower()] if q else items
-        for item in filtered[:250]:
-            prefix = "  [ * ]  " if item == current else "  [   ]  "
-            ol.add_option(Option(f"{prefix}{item}", id=item))
+        selected_idx = 0
+        for idx, item in enumerate(filtered):
+            is_sel = item == current
+            if is_sel:
+                selected_idx = idx
+            ol.add_option(Option(self._format_loc_prompt(item, is_sel), id=item))
         if ol.option_count > 0:
-            ol.highlighted = 0
+            ol.highlighted = selected_idx
 
-    def _render_inspector(self) -> str:
+    def _update_selection_in_place(self, selector: str, old_val: str, new_val: str) -> None:
+        """Update only the old and new rows so scroll position and cursor never jump."""
+        ol = self.query_one(selector, PackageOptionList)
+        if old_val and old_val != new_val:
+            try:
+                ol.replace_option_prompt(old_val, self._format_loc_prompt(old_val, False))
+            except OptionDoesNotExist:
+                pass
+        try:
+            ol.replace_option_prompt(new_val, self._format_loc_prompt(new_val, True))
+        except OptionDoesNotExist:
+            pass
+
+    def _render_inspector(self) -> Text:
         cfg = self.installer_app.config
-        return (
-            f"Timezone : {cfg.timezone}\n"
-            f"Locale   : {cfg.locale}\n"
-            f"Keymap   : {cfg.keymap}\n\n"
-            "Press Space or Enter on any list item to apply.\n"
-            "Press 1, 2, or 3 to switch categories."
-        )
+        t = Text()
+        t.append("Timezone : ")
+        t.append(f"{cfg.timezone}\n", style="bold bright_green")
+        t.append("Locale   : ")
+        t.append(f"{cfg.locale}\n", style="bold bright_green")
+        t.append("Keymap   : ")
+        t.append(f"{cfg.keymap}\n\n", style="bold bright_green")
+        t.append("Press Space or Enter on any item to select.\n", style="white")
+        t.append("Press 1, 2, or 3 to switch categories.", style="white")
+        return t
 
     def _update_inspector(self) -> None:
         self.query_one("#loc-inspector", Static).update(self._render_inspector())
@@ -390,25 +441,25 @@ class LocalizationScreen(Screen[None]):
     @on(OptionList.OptionSelected, "#list-tz")
     def _select_tz(self, event: OptionList.OptionSelected) -> None:
         if event.option_id:
+            old = self.installer_app.config.timezone
             self.installer_app.config.timezone = event.option_id
-            q = self.query_one("#filter-tz", Input).value
-            self._populate_list("#list-tz", self._timezones, q, event.option_id)
+            self._update_selection_in_place("#list-tz", old, event.option_id)
             self._update_inspector()
 
     @on(OptionList.OptionSelected, "#list-locale")
     def _select_locale(self, event: OptionList.OptionSelected) -> None:
         if event.option_id:
+            old = self.installer_app.config.locale
             self.installer_app.config.locale = event.option_id
-            q = self.query_one("#filter-locale", Input).value
-            self._populate_list("#list-locale", self._locales, q, event.option_id)
+            self._update_selection_in_place("#list-locale", old, event.option_id)
             self._update_inspector()
 
     @on(OptionList.OptionSelected, "#list-keymap")
     def _select_keymap(self, event: OptionList.OptionSelected) -> None:
         if event.option_id:
+            old = self.installer_app.config.keymap
             self.installer_app.config.keymap = event.option_id
-            q = self.query_one("#filter-keymap", Input).value
-            self._populate_list("#list-keymap", self._keymaps, q, event.option_id)
+            self._update_selection_in_place("#list-keymap", old, event.option_id)
             self._update_inspector()
 
     def action_go_back(self) -> None:
@@ -424,7 +475,7 @@ class LocalizationScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 3: Identity (Hostname, Username & Passwords)
+# Screen 3: Identity (Hostname, Username & Contextual Root Password)
 # ---------------------------------------------------------------------------
 
 
@@ -444,7 +495,7 @@ class IdentityScreen(Screen[None]):
                 yield Static(_window_title("Step 3/7: Identity"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with VerticalScroll(id="left-pane"):
                     yield Label("Hostname", classes="field-label")
                     yield Input(value=cfg.hostname, placeholder="arch-desktop", id="inp-hostname")
@@ -462,21 +513,23 @@ class IdentityScreen(Screen[None]):
                         id="tog-same-root",
                     )
 
-                    yield Label("Root Password", classes="field-label")
-                    yield Input(
-                        value=cfg.root_password,
-                        password=True,
-                        placeholder="Enter root password",
-                        id="inp-root-pw",
-                        disabled=cfg.same_root_password,
-                    )
-                    yield Input(
-                        value=cfg.root_password,
-                        password=True,
-                        placeholder="Confirm root password",
-                        id="inp-root-pw2",
-                        disabled=cfg.same_root_password,
-                    )
+                    with Vertical(
+                        id="root-pw-section",
+                        classes="hidden" if cfg.same_root_password else "",
+                    ):
+                        yield Label("Root Password", classes="field-label")
+                        yield Input(
+                            value=cfg.root_password,
+                            password=True,
+                            placeholder="Enter root password",
+                            id="inp-root-pw",
+                        )
+                        yield Input(
+                            value=cfg.root_password,
+                            password=True,
+                            placeholder="Confirm root password",
+                            id="inp-root-pw2",
+                        )
 
                 with VerticalScroll(id="right-pane"):
                     yield Static("Validation", classes="pane-heading")
@@ -489,8 +542,16 @@ class IdentityScreen(Screen[None]):
                     yield Button("Next ->", id="btn-next", variant="primary")
 
     def on_mount(self) -> None:
+        self._update_root_visibility(self.installer_app.config.same_root_password)
         self._sync_and_validate()
         self.query_one("#inp-hostname", Input).focus()
+
+    def _update_root_visibility(self, same_root: bool) -> None:
+        section = self.query_one("#root-pw-section", Vertical)
+        if same_root:
+            section.add_class("hidden")
+        else:
+            section.remove_class("hidden")
 
     def _focus_chain(self) -> list:
         chain = [
@@ -543,8 +604,7 @@ class IdentityScreen(Screen[None]):
 
     @on(CleanToggle.Changed, "#tog-same-root")
     def _on_same_root_toggled(self, event: CleanToggle.Changed) -> None:
-        self.query_one("#inp-root-pw", Input).disabled = event.value
-        self.query_one("#inp-root-pw2", Input).disabled = event.value
+        self._update_root_visibility(event.value)
         self._sync_and_validate()
 
     def _sync_and_validate(self) -> bool:
@@ -573,12 +633,23 @@ class IdentityScreen(Screen[None]):
             root_confirm=root_pw2,
         )
 
-        lines = [
-            f"{'[ OK ]' if h_ok else '[ -- ]'}  Hostname : {h_msg}",
-            f"{'[ OK ]' if u_ok else '[ -- ]'}  Username : {u_msg}",
-            f"{'[ OK ]' if p_ok else '[ -- ]'}  Password : {p_msg}",
-        ]
-        self.query_one("#identity-inspector", Static).update("\n".join(lines))
+        text = Text()
+        for idx, (ok, label, msg) in enumerate(
+            (
+                (h_ok, "Hostname", h_msg),
+                (u_ok, "Username", u_msg),
+                (p_ok, "Password", p_msg),
+            )
+        ):
+            if ok:
+                text.append("[ OK ]", style="bold bright_green")
+            else:
+                text.append("[ -- ]", style="bold bright_red")
+            text.append(f"  {label:<9}: {msg}")
+            if idx < 2:
+                text.append("\n")
+
+        self.query_one("#identity-inspector", Static).update(text)
         valid = h_ok and u_ok and p_ok
         self.query_one("#btn-next", Button).disabled = not valid
         return valid
@@ -623,7 +694,7 @@ class DiskScreen(Screen[None]):
                 yield Static(_window_title("Step 4/7: Target Disk"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with Vertical(id="left-pane"):
                     yield Static("Available Disks", classes="pane-heading")
                     yield Static("Boot media is automatically excluded.", classes="hint-text")
@@ -634,7 +705,7 @@ class DiskScreen(Screen[None]):
                     yield Static("", id="disk-inspector")
 
             with Horizontal(id="window-footer"):
-                yield Static("Up/Down: Disk   Space/Enter: Select   R: Refresh   Left/Right: Actions   Esc: Back", id="footer-keys")
+                yield Static("Up/Down: Disk   Space/Enter: Select   R: Refresh   Left/Right: Actions", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("<- Back", id="btn-back")
                     yield Button("Refresh", id="btn-refresh-disks")
@@ -667,6 +738,12 @@ class DiskScreen(Screen[None]):
     def action_refresh_disks(self) -> None:
         self._load_disks()
 
+    @staticmethod
+    def _format_disk_prompt(disk: DiskInfo, is_selected: bool) -> Text:
+        if is_selected:
+            return _badge_option_text("[ * ]", "bold bright_green", disk.label)
+        return _badge_option_text("[   ]", "white", disk.label)
+
     def _load_disks(self) -> None:
         disks = discover_disks()
         if not disks and self.installer_app.dry_run:
@@ -681,23 +758,25 @@ class DiskScreen(Screen[None]):
                 )
             ]
         self._disks = disks
+        if disks and self.installer_app.config.target_disk is None:
+            self.installer_app.config.target_disk = disks[0]
+
         ol = self.query_one("#disk-list", PackageOptionList)
         ol.clear_options()
         current_path = self.installer_app.config.target_disk.path if self.installer_app.config.target_disk else ""
-        for disk in disks:
-            prefix = "  [ * ]  " if disk.path == current_path else "  [   ]  "
-            ol.add_option(Option(f"{prefix}{disk.label}", id=disk.path))
+        sel_idx = 0
+        for idx, disk in enumerate(disks):
+            is_sel = disk.path == current_path
+            if is_sel:
+                sel_idx = idx
+            ol.add_option(Option(self._format_disk_prompt(disk, is_sel), id=disk.path))
         if ol.option_count > 0:
-            ol.highlighted = 0
+            ol.highlighted = sel_idx
 
         if not disks:
             self.query_one("#disk-inspector", Static).update("No eligible target disks found.")
             self.query_one("#btn-next", Button).disabled = True
         else:
-            if self.installer_app.config.target_disk is None:
-                self.installer_app.config.target_disk = disks[0]
-                self._load_disks()
-                return
             self._render_disk_inspector(self.installer_app.config.target_disk)
             self.query_one("#btn-next", Button).disabled = False
 
@@ -711,21 +790,25 @@ class DiskScreen(Screen[None]):
         if disk is None:
             return
         cfg = self.installer_app.config
-        selected_mark = " (SELECTED)" if cfg.target_disk and cfg.target_disk.path == disk.path else ""
+        is_sel = bool(cfg.target_disk and cfg.target_disk.path == disk.path)
         esp_gib = cfg.esp_size_mib / 1024.0
         root_gib = max(0.0, disk.size_gib - esp_gib)
-        text = (
-            f"Device     : {disk.path}{selected_mark}\n"
-            f"Model      : {disk.model or 'Unknown'}\n"
+
+        t = Text()
+        t.append(f"Device     : {disk.path}")
+        if is_sel:
+            t.append("  [SELECTED]", style="bold bright_green")
+        t.append(
+            f"\nModel      : {disk.model or 'Unknown'}\n"
             f"Transport  : {(disk.transport or 'disk').upper()}\n"
             f"Capacity   : {disk.size_gib:.1f} GiB\n\n"
             "GPT Partitions:\n"
             f"  1. EFI   : {cfg.esp_size_mib} MiB  FAT32  -> /boot\n"
             f"  2. ROOT  : {root_gib:.1f} GiB   ext4   -> /\n"
             "  Swap     : zram (zstd)\n\n"
-            f"WARNING: All data on {disk.path} will be erased."
         )
-        self.query_one("#disk-inspector", Static).update(text)
+        t.append(f"WARNING: All data on {disk.path} will be erased.", style="bold bright_red")
+        self.query_one("#disk-inspector", Static).update(t)
 
     @on(OptionList.OptionHighlighted, "#disk-list")
     def _on_disk_highlighted(self, event: OptionList.OptionHighlighted) -> None:
@@ -735,11 +818,21 @@ class DiskScreen(Screen[None]):
     @on(OptionList.OptionSelected, "#disk-list")
     def _on_disk_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_id:
-            disk = self._find_disk(event.option_id)
-            if disk is not None:
-                self.installer_app.config.target_disk = disk
-                self._load_disks()
-                self._render_disk_inspector(disk)
+            old_disk = self.installer_app.config.target_disk
+            new_disk = self._find_disk(event.option_id)
+            if new_disk is not None:
+                self.installer_app.config.target_disk = new_disk
+                ol = self.query_one("#disk-list", PackageOptionList)
+                if old_disk is not None and old_disk.path != new_disk.path:
+                    try:
+                        ol.replace_option_prompt(old_disk.path, self._format_disk_prompt(old_disk, False))
+                    except OptionDoesNotExist:
+                        pass
+                try:
+                    ol.replace_option_prompt(new_disk.path, self._format_disk_prompt(new_disk, True))
+                except OptionDoesNotExist:
+                    pass
+                self._render_disk_inspector(new_disk)
 
     @on(Button.Pressed, "#btn-refresh-disks")
     def _on_refresh(self) -> None:
@@ -837,7 +930,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
                 yield Static(_window_title("Step 5/7: Options & Mirrors"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with Vertical(id="left-pane"):
                     yield Static("System & Mirror Options", classes="pane-heading")
                     yield PackageOptionList(id="options-list")
@@ -854,7 +947,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
                     yield Button("Next ->", id="btn-next", variant="primary")
 
     def on_mount(self) -> None:
-        self._rebuild_options(keep_index=1)
+        self._build_options()
         self._refresh_mirror_preview()
         self.query_one("#options-list", PackageOptionList).focus()
 
@@ -879,55 +972,94 @@ class OptionsAndMirrorsScreen(Screen[None]):
             event.stop()
 
     @staticmethod
-    def _tog(val: bool) -> str:
-        return "[ ON ]" if val else "[ OFF]"
+    def _tog_prompt(val: bool, label: str) -> Text:
+        if val:
+            return _badge_option_text("[ ON ]", "bold bright_green", label)
+        return _badge_option_text("[ OFF]", "white", label)
 
     @staticmethod
-    def _rad(val: bool) -> str:
-        return "( * )" if val else "(   )"
+    def _rad_prompt(val: bool, label: str) -> Text:
+        if val:
+            return _badge_option_text("( * )", "bold bright_green", label)
+        return _badge_option_text("(   )", "white", label)
 
-    def _rebuild_options(self, *, keep_index: int | None = None) -> None:
+    def _option_prompts(self) -> dict[str, Text]:
         cfg = self.installer_app.config
-        ol = self.query_one("#options-list", PackageOptionList)
-        prev_idx = ol.highlighted if keep_index is None else keep_index
-        ol.clear_options()
+        return {
+            "opt:color": self._tog_prompt(cfg.pacman.color, "Color output"),
+            "opt:verbose": self._tog_prompt(cfg.pacman.verbose_pkg_lists, "Verbose package lists"),
+            "opt:candy": self._tog_prompt(cfg.pacman.i_love_candy, "ILoveCandy progress bar"),
+            "opt:multilib": self._tog_prompt(cfg.pacman.enable_multilib, "[multilib] 32-bit repository"),
+            "opt:clear_cache": self._tog_prompt(cfg.pacman.clear_cache_after_install, "Clear cache after install"),
+            "opt:paccache": self._tog_prompt(cfg.pacman.enable_paccache_timer, "Weekly paccache.timer"),
+            "opt:parallel": _badge_option_text(
+                f"[ {cfg.pacman.parallel_downloads:2d} ]",
+                "bold bright_cyan",
+                "Parallel downloads",
+            ),
+            "aur:paru-bin": self._rad_prompt(cfg.aur_helper == "paru-bin", "paru-bin (prebuilt)"),
+            "aur:paru": self._rad_prompt(cfg.aur_helper == "paru", "paru (compile in /var/tmp)"),
+            "aur:none": self._rad_prompt(cfg.aur_helper == "none", "none (skip AUR helper)"),
+            "mir:keep": self._rad_prompt(cfg.mirrors.mode == "keep", "Keep current ISO mirrorlist"),
+            "mir:country": self._rad_prompt(cfg.mirrors.mode == "country", "Rank by country"),
+            "mir:worldwide": self._rad_prompt(cfg.mirrors.mode == "worldwide", "Rank worldwide"),
+            "mir:countries": _badge_option_text(
+                "[EDIT]",
+                "bold bright_cyan",
+                f"Countries: {', '.join(cfg.mirrors.countries) or '(none)'}",
+            ),
+            "mir:target": self._tog_prompt(cfg.mirrors.install_reflector_on_target, "Install reflector on target"),
+            "mir:run": _badge_option_text(
+                "[ ...]" if self._reflector_busy else "[ RUN]",
+                "bold bright_yellow" if self._reflector_busy else "bold bright_cyan",
+                "Ranking mirrors..." if self._reflector_busy else "Optimize mirrors now",
+            ),
+        }
 
+    def _build_options(self) -> None:
+        ol = self.query_one("#options-list", PackageOptionList)
+        ol.clear_options()
+        prompts = self._option_prompts()
         entries = [
             Option("  PACMAN", disabled=True),
-            Option(f"  {self._tog(cfg.pacman.color)}  Color output", id="opt:color"),
-            Option(f"  {self._tog(cfg.pacman.verbose_pkg_lists)}  Verbose package lists", id="opt:verbose"),
-            Option(f"  {self._tog(cfg.pacman.i_love_candy)}  ILoveCandy progress bar", id="opt:candy"),
-            Option(f"  {self._tog(cfg.pacman.enable_multilib)}  [multilib] 32-bit repository", id="opt:multilib"),
-            Option(f"  {self._tog(cfg.pacman.clear_cache_after_install)}  Clear cache after install", id="opt:clear_cache"),
-            Option(f"  {self._tog(cfg.pacman.enable_paccache_timer)}  Weekly paccache.timer", id="opt:paccache"),
-            Option(f"  [ {cfg.pacman.parallel_downloads:2d} ]  Parallel downloads", id="opt:parallel"),
+            Option(prompts["opt:color"], id="opt:color"),
+            Option(prompts["opt:verbose"], id="opt:verbose"),
+            Option(prompts["opt:candy"], id="opt:candy"),
+            Option(prompts["opt:multilib"], id="opt:multilib"),
+            Option(prompts["opt:clear_cache"], id="opt:clear_cache"),
+            Option(prompts["opt:paccache"], id="opt:paccache"),
+            Option(prompts["opt:parallel"], id="opt:parallel"),
             Option("", disabled=True),
             Option("  AUR HELPER", disabled=True),
-            Option(f"  {self._rad(cfg.aur_helper == 'paru-bin')}  paru-bin (prebuilt)", id="aur:paru-bin"),
-            Option(f"  {self._rad(cfg.aur_helper == 'paru')}  paru (compile in /var/tmp)", id="aur:paru"),
-            Option(f"  {self._rad(cfg.aur_helper == 'none')}  none (skip AUR helper)", id="aur:none"),
+            Option(prompts["aur:paru-bin"], id="aur:paru-bin"),
+            Option(prompts["aur:paru"], id="aur:paru"),
+            Option(prompts["aur:none"], id="aur:none"),
             Option("", disabled=True),
             Option("  MIRRORS (REFLECTOR)", disabled=True),
-            Option(f"  {self._rad(cfg.mirrors.mode == 'keep')}  Keep current ISO mirrorlist", id="mir:keep"),
-            Option(f"  {self._rad(cfg.mirrors.mode == 'country')}  Rank by country", id="mir:country"),
-            Option(f"  {self._rad(cfg.mirrors.mode == 'worldwide')}  Rank worldwide", id="mir:worldwide"),
-            Option(
-                f"  [EDIT]  Countries: {', '.join(cfg.mirrors.countries) or '(none)'}",
-                id="mir:countries",
-            ),
-            Option(f"  {self._tog(cfg.mirrors.install_reflector_on_target)}  Install reflector on target", id="mir:target"),
-            Option(
-                "  [ ... ]  Ranking mirrors..." if self._reflector_busy else "  [ RUN]  Optimize mirrors now",
-                id="mir:run",
-                disabled=self._reflector_busy,
-            ),
+            Option(prompts["mir:keep"], id="mir:keep"),
+            Option(prompts["mir:country"], id="mir:country"),
+            Option(prompts["mir:worldwide"], id="mir:worldwide"),
+            Option(prompts["mir:countries"], id="mir:countries"),
+            Option(prompts["mir:target"], id="mir:target"),
+            Option(prompts["mir:run"], id="mir:run", disabled=self._reflector_busy),
         ]
         for opt in entries:
             ol.add_option(opt)
+        ol.highlighted = 1
 
-        if ol.option_count > 0:
-            idx = 1 if prev_idx is None else max(0, min(prev_idx, ol.option_count - 1))
-            ol.highlighted = idx
+    def _sync_option_prompts_in_place(self) -> None:
+        """Update option labels without clearing OptionList so scroll stays stable."""
+        ol = self.query_one("#options-list", PackageOptionList)
+        prompts = self._option_prompts()
+        for oid, prompt in prompts.items():
+            try:
+                ol.replace_option_prompt(oid, prompt)
+            except OptionDoesNotExist:
+                continue
+        if self._reflector_busy:
+            ol.disable_option("mir:run")
+        else:
+            ol.enable_option("mir:run")
 
     def _refresh_mirror_preview(self) -> None:
         mirrors = self.installer_app.config.mirrors.active_mirrors_preview or read_active_mirrors(limit=6)
@@ -986,13 +1118,13 @@ class OptionsAndMirrorsScreen(Screen[None]):
             self._trigger_reflector()
             return
 
-        self._rebuild_options(keep_index=event.option_index)
+        self._sync_option_prompts_in_place()
 
     def _apply_countries(self, value: str | None) -> None:
         if value is not None:
             parsed = [c.strip() for c in value.split(",") if c.strip()]
             self.installer_app.config.mirrors.countries = parsed
-            self._rebuild_options()
+            self._sync_option_prompts_in_place()
         self.query_one("#options-list", PackageOptionList).focus()
 
     def _trigger_reflector(self) -> None:
@@ -1002,7 +1134,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
             return
         self._reflector_busy = True
         self._mirror_status_msg = "Ranking mirrors..."
-        self._rebuild_options()
+        self._sync_option_prompts_in_place()
         self._refresh_mirror_preview()
         self._run_reflector_worker()
 
@@ -1032,7 +1164,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
         else:
             self.installer_app.config.mirrors.active_mirrors_preview = mirrors
             self._mirror_status_msg = f"Updated ({len(mirrors)} mirrors)."
-        self._rebuild_options()
+        self._sync_option_prompts_in_place()
         self._refresh_mirror_preview()
 
     def action_go_back(self) -> None:
@@ -1073,7 +1205,7 @@ class PackagesScreen(Screen[None]):
                 yield Static(_window_title("Step 6/7: Packages"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with Vertical(id="left-pane"):
                     with Horizontal(id="tab-bar"):
                         yield Button("[1] Curated Catalog", id="btn-tab-curated", classes="tab-btn active")
@@ -1117,14 +1249,7 @@ class PackagesScreen(Screen[None]):
                 btn.add_class("active")
             else:
                 btn.remove_class("active")
-        if tab_id == "tab-curated":
-            self.query_one("#curated-list", PackageOptionList).focus()
-        else:
-            sl = self.query_one("#search-list", PackageOptionList)
-            if sl.option_count > 0:
-                sl.focus()
-            else:
-                self.query_one("#inp-search-pkg", Input).focus()
+        self._focus_active_content()
 
     def _focus_active_content(self) -> None:
         if self._active_tab == "tab-curated":
@@ -1193,6 +1318,22 @@ class PackagesScreen(Screen[None]):
     def _on_tab_search(self) -> None:
         self._switch_tab("tab-search")
 
+    @staticmethod
+    def _format_curated_prompt(name: str, repo: str, required: bool, selected: set[str]) -> Text:
+        label = f"{name:<26} {repo}"
+        if required:
+            return _badge_option_text("[LOCK]", "bold bright_yellow", label)
+        if name in selected:
+            return _badge_option_text("[ ON ]", "bold bright_green", label)
+        return _badge_option_text("[    ]", "white", label)
+
+    @staticmethod
+    def _format_search_prompt(pkg: SearchedPackage, is_selected: bool) -> Text:
+        label = f"{pkg.repo}/{pkg.name:<24} {pkg.version}"
+        if is_selected:
+            return _badge_option_text("[ ON ]", "bold bright_green", label)
+        return _badge_option_text("[    ]", "white", label)
+
     def _populate_curated(self, filter_text: str) -> None:
         ol = self.query_one("#curated-list", PackageOptionList)
         ol.clear_options()
@@ -1216,48 +1357,41 @@ class PackagesScreen(Screen[None]):
             for pkg in items:
                 ol.add_option(
                     Option(
-                        self._format_curated_label(pkg.name, pkg.repo, pkg.required, cfg.selected_curated_packages),
+                        self._format_curated_prompt(pkg.name, pkg.repo, pkg.required, cfg.selected_curated_packages),
                         id=pkg.name,
                     )
                 )
         if ol.option_count > 1:
             ol.highlighted = 1
 
-    @staticmethod
-    def _format_curated_label(name: str, repo: str, required: bool, selected: set[str]) -> str:
-        badge = "[LOCK]" if required else ("[ ON ]" if name in selected else "[    ]")
-        return f"  {badge}  {name:<26} {repo}"
-
     def _update_total_count(self) -> None:
         cfg = self.installer_app.config
         total = len(cfg.all_packages(self.installer_app.catalog.required_names))
         custom_n = len(cfg.custom_packages)
-        self.query_one("#pkg-count-footer", Static).update(
-            f"\nTotal Selected: {total} packages ({custom_n} custom)"
-        )
+        t = Text("\nTotal Selected: ")
+        t.append(f"{total} packages", style="bold bright_green")
+        t.append(f" ({custom_n} custom)")
+        self.query_one("#pkg-count-footer", Static).update(t)
 
     def _inspect_curated_pkg(self, pkg_name: str) -> None:
         pkg = self.installer_app.catalog.by_name(pkg_name)
         if pkg is None:
             return
         group = self.installer_app.catalog.groups[pkg.group]
-        status = (
-            "Required (Locked)"
-            if pkg.required
-            else (
-                "Selected"
-                if pkg.name in self.installer_app.config.selected_curated_packages
-                else "Not Selected"
-            )
-        )
-        self.query_one("#pkg-inspector", Static).update(
-            f"{pkg.name}\n"
-            f"Repository : {pkg.repo}\n"
-            f"Group      : {group.title}\n"
-            f"Status     : {status}\n\n"
-            f"Description:\n  {pkg.summary}\n\n"
-            f"Role:\n  {pkg.reason}"
-        )
+        t = Text()
+        t.append(f"{pkg.name}\n", style="bold bright_cyan")
+        t.append(f"Repository : {pkg.repo}\n")
+        t.append(f"Group      : {group.title}\n")
+        t.append("Status     : ")
+        if pkg.required:
+            t.append("Required (Locked)\n\n", style="bold bright_yellow")
+        elif pkg.name in self.installer_app.config.selected_curated_packages:
+            t.append("Selected\n\n", style="bold bright_green")
+        else:
+            t.append("Not Selected\n\n", style="white")
+        t.append(f"Description:\n  {pkg.summary}\n\n")
+        t.append(f"Role:\n  {pkg.reason}")
+        self.query_one("#pkg-inspector", Static).update(t)
 
     @on(Input.Changed, "#filter-curated")
     def _on_curated_filter(self, event: Input.Changed) -> None:
@@ -1276,7 +1410,7 @@ class PackagesScreen(Screen[None]):
         if pkg is None:
             return
         if pkg.required:
-            self.notify(f"'{pkg.name}' is required.", severity="information")
+            self.notify(f"'{pkg.name}' is required and locked.", severity="information")
             return
         selected = self.installer_app.config.selected_curated_packages
         if pkg.name in selected:
@@ -1286,7 +1420,7 @@ class PackagesScreen(Screen[None]):
         ol = self.query_one("#curated-list", PackageOptionList)
         ol.replace_option_prompt(
             pkg.name,
-            self._format_curated_label(pkg.name, pkg.repo, pkg.required, selected),
+            self._format_curated_prompt(pkg.name, pkg.repo, pkg.required, selected),
         )
         self._update_total_count()
         self._inspect_curated_pkg(pkg.name)
@@ -1362,8 +1496,7 @@ class PackagesScreen(Screen[None]):
         custom = self.installer_app.config.custom_packages
         for pkg in results[:120]:
             self._search_results[pkg.name] = pkg
-            badge = "[ ON ]" if pkg.name in custom else "[    ]"
-            ol.add_option(Option(f"  {badge}  {pkg.repo}/{pkg.name:<24} {pkg.version}", id=pkg.name))
+            ol.add_option(Option(self._format_search_prompt(pkg, pkg.name in custom), id=pkg.name))
         if ol.option_count > 0:
             ol.highlighted = 0
             ol.focus()
@@ -1399,23 +1532,19 @@ class PackagesScreen(Screen[None]):
         self, pkg: SearchedPackage, details: PackageDetails | None
     ) -> None:
         selected = pkg.name in self.installer_app.config.custom_packages
-        lines = [
-            f"{pkg.repo}/{pkg.name} ({pkg.version})",
-            f"Selection  : {'Added' if selected else 'Not added'}",
-            "",
-            f"Description:\n  {pkg.description or '(none)'}",
-        ]
+        t = Text()
+        t.append(f"{pkg.repo}/{pkg.name} ({pkg.version})\n", style="bold bright_cyan")
+        t.append("Selection  : ")
+        t.append("Added\n\n" if selected else "Not added\n\n", style="bold bright_green" if selected else "white")
+        t.append(f"Description:\n  {pkg.description or '(none)'}")
         if details is not None:
-            lines.extend(
-                [
-                    "",
-                    f"Download   : {details.download_size}",
-                    f"Installed  : {details.installed_size}",
-                    f"Depends On : {details.depends_on}",
-                    f"URL        : {details.url}",
-                ]
+            t.append(
+                f"\n\nDownload   : {details.download_size}\n"
+                f"Installed  : {details.installed_size}\n"
+                f"Depends On : {details.depends_on}\n"
+                f"URL        : {details.url}"
             )
-        self.query_one("#pkg-inspector", Static).update("\n".join(lines))
+        self.query_one("#pkg-inspector", Static).update(t)
 
     @on(OptionList.OptionSelected, "#search-list")
     def _on_search_toggled(self, event: OptionList.OptionSelected) -> None:
@@ -1427,12 +1556,12 @@ class PackagesScreen(Screen[None]):
         custom = self.installer_app.config.custom_packages
         if pkg.name in custom:
             del custom[pkg.name]
-            badge = "[    ]"
+            is_sel = False
         else:
             custom[pkg.name] = pkg
-            badge = "[ ON ]"
+            is_sel = True
         ol = self.query_one("#search-list", PackageOptionList)
-        ol.replace_option_prompt(pkg.name, f"  {badge}  {pkg.repo}/{pkg.name:<24} {pkg.version}")
+        ol.replace_option_prompt(pkg.name, self._format_search_prompt(pkg, is_sel))
         self._update_total_count()
         self._render_searched_inspector(pkg, self._details_cache.get(pkg.name))
 
@@ -1524,7 +1653,7 @@ class SummaryScreen(Screen[None]):
                 yield Static(_window_title("Step 7/7: Review"), id="header-title")
                 yield Static(_badges_text(self.installer_app), id="header-badges")
 
-            with Horizontal(id="grid-body"):
+            with Container(id="grid-body"):
                 with VerticalScroll(id="left-pane"):
                     yield Static("Configuration Summary", classes="pane-heading")
                     yield Static("", id="summary-text")
@@ -1580,12 +1709,12 @@ class SummaryScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 8: Minimalist Installation Progress View
+# Screen 8: Minimalist Installation Progress View + Real-File Synced Log Drawer
 # ---------------------------------------------------------------------------
 
 
 class InstallProgressScreen(Screen[None]):
-    """Minimalist progress bar and step list with collapsible log drawer."""
+    """Minimalist progress bar and step list synced with the live installation log."""
 
     BINDINGS = [
         Binding("l", "toggle_details", "Toggle Details"),
@@ -1598,6 +1727,8 @@ class InstallProgressScreen(Screen[None]):
         self._finished: bool = False
         self._failed: bool = False
         self._timer = None
+        self._log_sync_timer = None
+        self._log_offset: int = 0
 
     @property
     def installer_app(self) -> MyArchInstallApp:
@@ -1614,7 +1745,7 @@ class InstallProgressScreen(Screen[None]):
                 )
                 yield Static("00:00", id="header-badges")
 
-            with VerticalScroll(id="progress-body"):
+            with Vertical(id="progress-body"):
                 yield Static("Overall Progress", classes="progress-section-title")
                 yield CleanProgressBar(total=100, id="pb-overall")
 
@@ -1623,10 +1754,10 @@ class InstallProgressScreen(Screen[None]):
 
                 yield Static(self._render_steps(), id="steps-box")
                 yield Static("", id="error-banner")
-                yield Log(id="log-drawer", max_lines=200)
+                yield Log(id="log-drawer", max_lines=1000, auto_scroll=False)
 
             with Horizontal(id="window-footer"):
-                yield Static(f"L: Details (Hidden)   Log: {self.installer_app.runner.log_path}", id="footer-keys")
+                yield Static(f"L: Details (Hidden)   Up/Down: Scroll Log   {self.installer_app.runner.log_path}", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("Details (L)", id="btn-toggle-log")
                     yield Button("Exit", id="btn-exit", disabled=True)
@@ -1635,10 +1766,14 @@ class InstallProgressScreen(Screen[None]):
     def on_mount(self) -> None:
         self._start_time = time.monotonic()
         self._timer = self.set_interval(1.0, self._tick_elapsed)
+        self._log_sync_timer = self.set_interval(0.15, self._sync_log_drawer)
         self.query_one("#btn-toggle-log", Button).focus()
         self._run_installation_worker()
 
     def on_key(self, event: events.Key) -> None:
+        drawer = self.query_one("#log-drawer", Log)
+        drawer_visible = drawer.has_class("visible")
+
         if event.key in {"left", "right"}:
             _cycle_focus_buttons(
                 self,
@@ -1646,6 +1781,44 @@ class InstallProgressScreen(Screen[None]):
                 -1 if event.key == "left" else 1,
             )
             event.stop()
+            return
+
+        if drawer_visible and not isinstance(self.focused, Log):
+            if event.key == "up":
+                drawer.scroll_up(animate=False)
+                event.stop()
+            elif event.key == "down":
+                drawer.scroll_down(animate=False)
+                event.stop()
+            elif event.key == "pageup":
+                drawer.scroll_page_up(animate=False)
+                event.stop()
+            elif event.key == "pagedown":
+                drawer.scroll_page_down(animate=False)
+                event.stop()
+            elif event.key == "home":
+                drawer.scroll_home(animate=False)
+                event.stop()
+            elif event.key == "end":
+                drawer.scroll_end(animate=False)
+                event.stop()
+
+    def _sync_log_drawer(self) -> None:
+        """Tail new lines directly from the real log file and auto-scroll if at bottom."""
+        new_lines, new_offset = read_appended_log_lines(
+            self.installer_app.runner.log_path,
+            self._log_offset,
+        )
+        if not new_lines:
+            return
+        self._log_offset = new_offset
+        drawer = self.query_one("#log-drawer", Log)
+        at_bottom = (
+            drawer.max_scroll_y <= 0
+            or drawer.is_vertical_scroll_end
+            or (drawer.max_scroll_y - drawer.scroll_y) <= 2
+        )
+        drawer.write_lines(new_lines, scroll_end=at_bottom)
 
     def _tick_elapsed(self) -> None:
         if self._finished:
@@ -1654,21 +1827,22 @@ class InstallProgressScreen(Screen[None]):
         mins, secs = divmod(elapsed, 60)
         self.query_one("#header-badges", Static).update(f"{mins:02d}:{secs:02d}")
 
-    @staticmethod
-    def _render_step_line(state: StepState, title: str) -> str:
-        glyph = {
-            StepState.PENDING: "[    ]",
-            StepState.RUNNING: "[ .. ]",
-            StepState.DONE: "[ OK ]",
-            StepState.FAILED: "[FAIL]",
-        }[state]
-        return f"  {glyph}  {title}"
-
-    def _render_steps(self) -> str:
-        lines = ["Steps:"]
-        for state, title in zip(self._step_states, STEP_TITLES):
-            lines.append(self._render_step_line(state, title))
-        return "\n".join(lines)
+    def _render_steps(self) -> Text:
+        t = Text()
+        t.append("Steps:\n", style="bold bright_cyan")
+        for idx, (state, title) in enumerate(zip(self._step_states, STEP_TITLES)):
+            if state == StepState.DONE:
+                t.append("  [ OK ]", style="bold bright_green")
+            elif state == StepState.RUNNING:
+                t.append("  [ .. ]", style="bold bright_cyan")
+            elif state == StepState.FAILED:
+                t.append("  [FAIL]", style="bold bright_red")
+            else:
+                t.append("  [    ]", style="white")
+            t.append(f"  {title}")
+            if idx < len(STEP_TITLES) - 1:
+                t.append("\n")
+        return t
 
     def action_toggle_details(self) -> None:
         drawer = self.query_one("#log-drawer", Log)
@@ -1676,8 +1850,11 @@ class InstallProgressScreen(Screen[None]):
         visible = drawer.has_class("visible")
         state_word = "Visible" if visible else "Hidden"
         self.query_one("#footer-keys", Static).update(
-            f"L: Details ({state_word})   Log: {self.installer_app.runner.log_path}"
+            f"L: Details ({state_word})   Up/Down: Scroll Log   {self.installer_app.runner.log_path}"
         )
+        if visible:
+            self._sync_log_drawer()
+            self.call_after_refresh(lambda: drawer.scroll_end(animate=False))
 
     @on(Button.Pressed, "#btn-toggle-log")
     def _on_toggle_btn(self) -> None:
@@ -1709,13 +1886,14 @@ class InstallProgressScreen(Screen[None]):
             pb_task.update(total=None, progress=0)
         else:
             pb_task.update(total=100, progress=event.task_percent)
-        if event.log_line:
-            self.query_one("#log-drawer", Log).write_line(event.log_line)
 
     def _on_install_success(self) -> None:
         self._finished = True
         if self._timer is not None:
             self._timer.stop()
+        self._sync_log_drawer()
+        if self._log_sync_timer is not None:
+            self._log_sync_timer.stop()
         self.query_one("#pb-overall", CleanProgressBar).update(total=100, progress=100)
         self.query_one("#pb-task", CleanProgressBar).update(total=100, progress=100)
         lbl = self.query_one("#task-label", Static)
@@ -1731,6 +1909,9 @@ class InstallProgressScreen(Screen[None]):
         self._failed = True
         if self._timer is not None:
             self._timer.stop()
+        self._sync_log_drawer()
+        if self._log_sync_timer is not None:
+            self._log_sync_timer.stop()
         lbl = self.query_one("#task-label", Static)
         lbl.update("Installation failed.")
         lbl.add_class("error-text")
@@ -1743,6 +1924,7 @@ class InstallProgressScreen(Screen[None]):
         drawer = self.query_one("#log-drawer", Log)
         if not drawer.has_class("visible"):
             drawer.add_class("visible")
+        self.call_after_refresh(lambda: drawer.scroll_end(animate=False))
         exit_btn = self.query_one("#btn-exit", Button)
         exit_btn.disabled = False
         exit_btn.focus()

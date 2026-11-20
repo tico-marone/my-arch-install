@@ -1,4 +1,4 @@
-/* Complete UI rewrite: spacious centered grid, zero 1/8th-block '#' artifacts, TTY-safe contrast */
+/* Spacious centered grid, zero clipping on right pane, calm unfocused buttons, TTY-safe contrast */
 
 * {
     scrollbar-size-vertical: 1;
@@ -54,7 +54,7 @@ Screen {
 #grid-body {
     layout: grid;
     grid-size: 2;
-    grid-columns: 56% 44%;
+    grid-columns: 56fr 44fr;
     grid-gutter: 0 2;
     height: 1fr;
     padding: 1 2;
@@ -62,6 +62,7 @@ Screen {
 
 #left-pane, #right-pane {
     height: 1fr;
+    width: 100%;
     border: solid #686868;
     padding: 1 2;
     background: $surface;
@@ -103,6 +104,15 @@ Screen {
     text-style: bold;
 }
 
+#root-pw-section {
+    height: auto;
+    layout: vertical;
+}
+
+#root-pw-section.hidden {
+    display: none;
+}
+
 #window-frame Input,
 #modal-box Input {
     border: solid #686868;
@@ -125,18 +135,36 @@ Screen {
     color: #686868;
 }
 
+/* Calm uniform gray for ALL unfocused buttons; only focused buttons highlight */
+
 #window-frame Button,
 #window-frame Button:hover,
 #window-frame Button.-active,
+#window-frame Button.-primary,
+#window-frame Button.-primary:hover,
+#window-frame Button.-primary.-active,
+#window-frame Button.-success,
+#window-frame Button.-success:hover,
+#window-frame Button.-success.-active,
+#window-frame Button.-error,
+#window-frame Button.-error:hover,
+#window-frame Button.-error.-active,
 #modal-box Button,
 #modal-box Button:hover,
-#modal-box Button.-active {
+#modal-box Button.-active,
+#modal-box Button.-primary,
+#modal-box Button.-primary:hover,
+#modal-box Button.-primary.-active,
+#modal-box Button.-error,
+#modal-box Button.-error:hover,
+#modal-box Button.-error.-active {
     border: none;
     height: 1;
     min-width: 10;
     padding: 0 2;
     background: #686868;
-    color: #ffffff;
+    color: #e5e5e5;
+    text-style: none;
 }
 
 #window-frame Button:focus,
@@ -147,17 +175,6 @@ Screen {
     text-style: bold;
 }
 
-#window-frame Button.-primary,
-#window-frame Button.-primary:hover,
-#window-frame Button.-primary.-active,
-#modal-box Button.-primary,
-#modal-box Button.-primary:hover,
-#modal-box Button.-primary.-active {
-    border: none;
-    background: $secondary;
-    color: #ffffff;
-}
-
 #window-frame Button.-primary:focus,
 #modal-box Button.-primary:focus {
     border: none;
@@ -166,39 +183,18 @@ Screen {
     text-style: bold;
 }
 
-#window-frame Button.-success,
-#window-frame Button.-success:hover,
-#window-frame Button.-success.-active {
+#window-frame Button.-success:focus {
     border: none;
     background: $success;
     color: #000000;
     text-style: bold;
 }
 
-#window-frame Button.-success:focus {
-    border: none;
-    background: $accent;
-    color: #000000;
-    text-style: bold;
-}
-
-#window-frame Button.-error,
-#window-frame Button.-error:hover,
-#window-frame Button.-error.-active,
-#modal-box Button.-error,
-#modal-box Button.-error:hover,
-#modal-box Button.-error.-active {
-    border: none;
-    background: $error;
-    color: #ffffff;
-    text-style: bold;
-}
-
 #window-frame Button.-error:focus,
 #modal-box Button.-error:focus {
     border: none;
-    background: #ffffff;
-    color: #000000;
+    background: $error;
+    color: #ffffff;
     text-style: bold;
 }
 
@@ -207,6 +203,7 @@ Screen {
     border: none;
     background: #000000;
     color: #686868;
+    text-style: none;
 }
 
 #tab-bar {
@@ -327,6 +324,8 @@ OptionList > .option-list--option-disabled {
     margin-left: 1;
 }
 
+/* Progress Screen: Vertical layout (not nested VerticalScroll) so Log scrolls smoothly */
+
 #progress-body {
     height: 1fr;
     padding: 1 3;
@@ -354,11 +353,16 @@ CleanProgressBar {
 }
 
 #log-drawer {
-    height: 12;
+    height: 1fr;
+    min-height: 7;
     border: solid #686868;
     background: $background;
     margin-top: 1;
     display: none;
+}
+
+#log-drawer:focus {
+    border: solid $accent;
 }
 
 #log-drawer.visible {
@@ -370,6 +374,7 @@ CleanProgressBar {
     background: $surface;
     color: $error;
     padding: 1 2;
+    height: auto;
     margin-top: 1;
     display: none;
 }

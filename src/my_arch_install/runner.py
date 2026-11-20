@@ -16,6 +16,23 @@ from . import __version__
 DEFAULT_LOG_PATH = Path("/tmp/my-arch-install.log")
 
 
+def read_appended_log_lines(log_path: Path, offset: int) -> tuple[list[str], int]:
+    """Read newly appended complete UTF-8 lines from log_path starting at byte offset."""
+    if not log_path.exists():
+        return [], offset
+    size = log_path.stat().st_size
+    if size <= offset:
+        return [], offset
+    with log_path.open("rb") as f:
+        f.seek(offset)
+        raw = f.read()
+    last_nl = raw.rfind(b"\n")
+    if last_nl == -1:
+        return [], offset
+    complete = raw[:last_nl].decode("utf-8", errors="replace")
+    return complete.splitlines(), offset + last_nl + 1
+
+
 def extract_error_summary(lines: Sequence[str], *, tail_count: int = 8) -> list[str]:
     """Extract key diagnostic error lines plus tail lines so cleanup output doesn't hide root cause."""
     tail = list(lines[-tail_count:]) if lines else []

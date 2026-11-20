@@ -5,6 +5,16 @@ All notable changes to `my-arch-install` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-20
+
+### Fixed
+- Pass Rich `Text` renderables to `OptionList` items so `[ ON ]`, `[ OFF]`, `[LOCK]`, `[ * ]`, and `[    ]` indicators are never stripped as Rich markup and display high-contrast status colors.
+- Switch `#grid-body` column sizing from `56% 44%` to `56fr 44fr` so the 2-column gutter no longer clips the right border of `#right-pane`.
+- Keep unfocused action buttons (`Next ->`, `Start Install`, etc.) in a neutral uniform style so only the actually focused button appears highlighted.
+- Update localization, disk, and system option rows in place with `replace_option_prompt` instead of rebuilding lists so scroll position and cursor remain steady on selection.
+- Show and hide the Step 3 root password section contextually based on the `Use same password for root` toggle.
+- Sync the Step 8 log drawer directly from `/tmp/my-arch-install.log` with `read_appended_log_lines`, support keyboard/mouse scrolling, and auto-scroll only when the user is at the bottom of the log.
+
 ## [0.3.1] - 2026-11-20
 
 ### Fixed

@@ -27,7 +27,12 @@ from my_arch_install.pacman_ops import (
     parse_pacman_ss,
     parse_reflector_countries,
 )
-from my_arch_install.runner import CommandError, CommandRunner, extract_error_summary
+from my_arch_install.runner import (
+    CommandError,
+    CommandRunner,
+    extract_error_summary,
+    read_appended_log_lines,
+)
 from my_arch_install.system_probe import parse_locale_gen, parse_lsblk_disks, partition_paths
 
 
@@ -137,6 +142,20 @@ class PacmanOpsTests(unittest.TestCase):
 
 
 class RunnerAndInstallerTests(unittest.TestCase):
+    def test_read_appended_log_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "test.log"
+            p.write_text("first\npartial", encoding="utf-8")
+            lines1, off1 = read_appended_log_lines(p, 0)
+            self.assertEqual(lines1, ["first"])
+            with p.open("a", encoding="utf-8") as f:
+                f.write(" done\nsecond · line\n")
+            lines2, off2 = read_appended_log_lines(p, off1)
+            self.assertEqual(lines2, ["partial done", "second · line"])
+            lines3, off3 = read_appended_log_lines(p, off2)
+            self.assertEqual(lines3, [])
+            self.assertEqual(off2, off3)
+
     def test_error_summary_preserves_diagnostic_lines(self) -> None:
         lines = [
             "Compiling foo",
