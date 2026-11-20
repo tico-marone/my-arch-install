@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-arch-install"
+version = "0.1.0"
+description = "Personal, interactive TUI installer for Arch Linux"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=8.2.0",
+]
+
+[project.scripts]
+my-arch-install = "my_arch_install.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

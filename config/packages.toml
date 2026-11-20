@@ -1,0 +1,488 @@
+# Curated package catalog for my-arch-install
+# Target profile: Intel Core i7-3770 (Ivy Bridge), Intel HD Graphics 4000,
+# SATA SSD (ext4, single-boot UEFI), zram, linux-zen, systemd-boot, minimal KDE Plasma.
+
+[groups.base_system]
+title = "Base System & Kernel"
+description = "Essential Arch Linux foundation, linux-zen kernel, storage tools, and networking."
+locked = true
+
+[groups.hardware_intel]
+title = "Intel i7-3770 & HD 4000 Stack"
+description = "Microcode updates, Mesa OpenGL (crocus), and VA-API video acceleration for Ivy Bridge."
+locked = false
+
+[groups.kde_core]
+title = "KDE Plasma Minimal Core"
+description = "Curated Plasma Wayland desktop components without kde-applications or plasma-meta bloat."
+locked = true
+
+[groups.kde_recommended]
+title = "Desktop Essentials & Fonts"
+description = "Core KDE utilities (Konsole, Dolphin), PipeWire audio, thumbnailers, and system fonts."
+locked = false
+
+[groups.optional_apps]
+title = "Optional Applications"
+description = "Toggleable everyday applications and system utilities."
+locked = false
+
+# --- Base System & Kernel ---
+
+[[packages]]
+name = "base"
+repo = "core"
+group = "base_system"
+required = true
+default = true
+summary = "Minimal package set defining a basic Arch Linux installation."
+reason = "Mandatory foundation providing glibc, systemd, coreutils, pacman, and filesystem layout."
+
+[[packages]]
+name = "linux-zen"
+repo = "extra"
+group = "base_system"
+required = true
+default = true
+summary = "Featureful kernel and modules tuned for desktop responsiveness."
+reason = "Selected kernel configured with desktop-oriented scheduling and preemption."
+
+[[packages]]
+name = "linux-zen-headers"
+repo = "extra"
+group = "base_system"
+required = false
+default = false
+summary = "Headers and scripts for building kernel modules against linux-zen."
+reason = "Only needed if you plan to build out-of-tree DKMS kernel modules; optional for HD 4000."
+
+[[packages]]
+name = "linux-firmware"
+repo = "core"
+group = "base_system"
+required = true
+default = true
+summary = "Firmware files for Linux kernel hardware drivers."
+reason = "Ensures onboard Ethernet controllers, storage controllers, and peripherals load required firmware."
+
+[[packages]]
+name = "dosfstools"
+repo = "core"
+group = "base_system"
+required = true
+default = true
+summary = "DOS filesystem utilities (mkfs.fat, fsck.fat)."
+reason = "Required to format and maintain the FAT32 EFI System Partition (ESP)."
+
+[[packages]]
+name = "e2fsprogs"
+repo = "core"
+group = "base_system"
+required = true
+default = true
+summary = "Ext2/ext3/ext4 filesystem utilities (mkfs.ext4, e2fsck)."
+reason = "Required to create, check, and maintain ext4 filesystems."
+
+[[packages]]
+name = "zram-generator"
+repo = "extra"
+group = "base_system"
+required = true
+default = true
+summary = "Systemd unit generator for compressed RAM swap devices."
+reason = "Provides fast zstd-compressed swap in RAM without wearing out the SATA SSD."
+
+[[packages]]
+name = "networkmanager"
+repo = "extra"
+group = "base_system"
+required = true
+default = true
+summary = "Network connection manager and user applications."
+reason = "Manages Ethernet (and optional Wi-Fi/VPN) connections and integrates directly with Plasma."
+
+[[packages]]
+name = "sudo"
+repo = "core"
+group = "base_system"
+required = true
+default = true
+summary = "Execute commands as root or another user."
+reason = "Allows the primary wheel-group user account to perform administrative tasks."
+
+# --- Intel i7-3770 & HD 4000 Stack ---
+
+[[packages]]
+name = "intel-ucode"
+repo = "extra"
+group = "hardware_intel"
+required = true
+default = true
+summary = "Microcode update files for Intel CPUs."
+reason = "Provides stability and security microcode patches for Intel Core i7-3770, packed into initramfs via the microcode hook."
+
+[[packages]]
+name = "mesa"
+repo = "extra"
+group = "hardware_intel"
+required = true
+default = true
+summary = "Open-source OpenGL implementation including the Intel crocus driver."
+reason = "Required for hardware-accelerated desktop compositing (KWin Wayland) on Intel HD 4000 (Gen7)."
+
+[[packages]]
+name = "libva-intel-driver"
+repo = "extra"
+group = "hardware_intel"
+required = false
+default = true
+summary = "VA-API implementation for Intel G45 and HD Graphics (up to Coffee Lake)."
+reason = "Provides hardware video decoding (H.264/MPEG-2) for HD 4000; unlike intel-media-driver which is Broadwell+ only."
+
+[[packages]]
+name = "vulkan-intel"
+repo = "extra"
+group = "hardware_intel"
+required = false
+default = false
+summary = "Open-source Vulkan driver for Intel GPUs (includes hasvk for Gen7)."
+reason = "Optional for apps using Vulkan; Intel HD 4000 (Ivy Bridge) only supports partial Vulkan features."
+
+[[packages]]
+name = "libva-utils"
+repo = "extra"
+group = "hardware_intel"
+required = false
+default = false
+summary = "Collection of utilities and tests for VA-API (vainfo)."
+reason = "Optional diagnostic tool to verify HD 4000 hardware video acceleration after installation."
+
+# --- KDE Plasma Minimal Core ---
+
+[[packages]]
+name = "plasma-desktop"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "KDE Plasma Desktop shell, panels, widgets, and workspace."
+reason = "Core Plasma desktop package without pulling plasma-meta bloat such as Discover, KMail, or unused KCMs."
+
+[[packages]]
+name = "plasma-workspace"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Core Plasma Workspace runtime, session startup, and KWin Wayland integration."
+reason = "Provides the underlying Plasma session services and pulls KWin Wayland compositor."
+
+[[packages]]
+name = "plasma-login-manager"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Official KDE Plasma Wayland display manager (plasmalogin.service)."
+reason = "Modern Plasma 6.8+ login greeter replacing SDDM with native Plasma Wayland integration."
+
+[[packages]]
+name = "plasma-nm"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Plasma system tray applet and settings module for NetworkManager."
+reason = "Lets you inspect and configure Ethernet/network connections directly from the Plasma panel."
+
+[[packages]]
+name = "plasma-pa"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Plasma volume control applet for PipeWire/PulseAudio."
+reason = "Provides volume sliders and audio device selection in the Plasma system tray."
+
+[[packages]]
+name = "kscreen"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "KDE screen management applet and display configuration."
+reason = "Required for resolution, refresh rate, and multi-monitor settings in System Settings."
+
+[[packages]]
+name = "powerdevil"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "KDE Plasma power management daemon."
+reason = "Handles monitor sleep/DPMS, idle actions, and power profiles."
+
+[[packages]]
+name = "kscreenlocker"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Library and daemon for Plasma screen locking."
+reason = "Required by Plasma Workspace for secure screen locking and unlock prompts."
+
+[[packages]]
+name = "breeze"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Default KDE Plasma visual style, window decorations, and icons."
+reason = "Ensures native Qt/KDE applications look consistent."
+
+[[packages]]
+name = "breeze-gtk"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "Breeze theme for GTK 2/3/4 applications."
+reason = "Makes GTK applications like Firefox match your Plasma Breeze color scheme."
+
+[[packages]]
+name = "kde-gtk-config"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "System Settings synchronization for GTK2 and GTK3 applications."
+reason = "Keeps fonts, cursor themes, and icon settings synced between Qt and GTK apps."
+
+[[packages]]
+name = "xdg-desktop-portal-kde"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "XDG Desktop Portal backend for KDE Plasma."
+reason = "Required on Wayland for native KDE file pickers, screen sharing, and sandboxed portal dialogs."
+
+[[packages]]
+name = "polkit-kde-agent"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "PolicyKit authentication agent for KDE Plasma."
+reason = "Provides graphical password prompts when GUI tools or Dolphin need elevated privileges."
+
+[[packages]]
+name = "kwallet-pam"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "PAM module to unlock KWallet automatically on login."
+reason = "Prevents repetitive KWallet password popups when apps store credentials."
+
+[[packages]]
+name = "systemsettings"
+repo = "extra"
+group = "kde_core"
+required = true
+default = true
+summary = "KDE Plasma System Settings control center."
+reason = "Central GUI for configuring display, keyboard, theme, and desktop behavior."
+
+[[packages]]
+name = "kinfocenter"
+repo = "extra"
+group = "kde_core"
+required = false
+default = true
+summary = "KDE utility displaying hardware, GPU, and system information."
+reason = "Helpful lightweight diagnostic view inside Plasma; safe to disable if unwanted."
+
+# --- Desktop Essentials & Fonts ---
+
+[[packages]]
+name = "pipewire"
+repo = "extra"
+group = "kde_recommended"
+required = true
+default = true
+summary = "Low-latency multimedia graph for audio and Wayland screen capture."
+reason = "Modern Arch audio backbone; also required by Wayland portals for screen sharing."
+
+[[packages]]
+name = "pipewire-alsa"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "ALSA configuration routing legacy ALSA apps through PipeWire."
+reason = "Ensures older applications using ALSA play audio cleanly through PipeWire."
+
+[[packages]]
+name = "pipewire-pulse"
+repo = "extra"
+group = "kde_recommended"
+required = true
+default = true
+summary = "PulseAudio replacement daemon backed by PipeWire."
+reason = "Required by plasma-pa and most desktop apps (browsers, media players) expecting PulseAudio."
+
+[[packages]]
+name = "wireplumber"
+repo = "extra"
+group = "kde_recommended"
+required = true
+default = true
+summary = "Session and policy manager for PipeWire."
+reason = "Manages audio routing, default output selection, and device profiles automatically."
+
+[[packages]]
+name = "konsole"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "Official KDE terminal emulator."
+reason = "Recommended lightweight terminal integrated with Plasma and Dolphin."
+
+[[packages]]
+name = "dolphin"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "Official KDE file manager."
+reason = "Recommended graphical file manager for Plasma; toggle off if you prefer terminal file managers."
+
+[[packages]]
+name = "ffmpegthumbs"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "FFmpeg-based video thumbnail generator for KDE file managers."
+reason = "Enables video file previews inside Dolphin."
+
+[[packages]]
+name = "kdegraphics-thumbnailers"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "Thumbnail plugins for PDFs, RAW images, and graphics files in KDE."
+reason = "Enables PDF and image document previews inside Dolphin."
+
+[[packages]]
+name = "noto-fonts"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "Google Noto TrueType fonts covering broad Unicode scripts."
+reason = "Prevents missing-glyph boxes in Plasma, browsers, and international text."
+
+[[packages]]
+name = "noto-fonts-emoji"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = false
+summary = "Color emoji font from the Google Noto family."
+reason = "Optional if you want proper color emoji rendering in browsers and terminals."
+
+[[packages]]
+name = "ttf-dejavu"
+repo = "extra"
+group = "kde_recommended"
+required = false
+default = true
+summary = "Clean sans, serif, and monospace fonts widely used on Linux."
+reason = "Provides crisp fallback monospace and UI fonts."
+
+# --- Optional Applications ---
+
+[[packages]]
+name = "firefox"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = true
+summary = "Fast, open-source web browser with native Wayland support."
+reason = "Recommended everyday web browser; deselect if you prefer another browser."
+
+[[packages]]
+name = "kate"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = true
+summary = "Advanced KDE text editor with syntax highlighting and tabs."
+reason = "Handy graphical editor for inspecting configuration files and notes."
+
+[[packages]]
+name = "neovim"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = false
+summary = "Modern extensible Vim-based terminal text editor."
+reason = "Optional CLI editor for developers and power users."
+
+[[packages]]
+name = "ark"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = true
+summary = "KDE graphical archive manager (tar, zip, 7z, rar)."
+reason = "Integrates extract/compress actions directly into Dolphin's right-click menu."
+
+[[packages]]
+name = "gwenview"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = true
+summary = "Fast, lightweight KDE image viewer."
+reason = "Standard Plasma image viewer without extra desktop bloat."
+
+[[packages]]
+name = "spectacle"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = true
+summary = "Official KDE screenshot and screen-capture utility."
+reason = "Handles PrintScreen hotkeys, region selection, and Wayland screenshots cleanly."
+
+[[packages]]
+name = "okular"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = false
+summary = "Universal KDE document viewer for PDFs, EPUBs, and comics."
+reason = "Optional if you need a dedicated lightweight PDF reader."
+
+[[packages]]
+name = "fastfetch"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = false
+summary = "Fast system information fetcher written in C."
+reason = "Optional terminal tool for displaying hardware, kernel, and DE summaries."
+
+[[packages]]
+name = "btop"
+repo = "extra"
+group = "optional_apps"
+required = false
+default = false
+summary = "Resource monitor displaying CPU, memory, disk, and network usage."
+reason = "Optional interactive terminal monitor."

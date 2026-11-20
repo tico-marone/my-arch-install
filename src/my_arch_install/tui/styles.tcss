@@ -1,0 +1,234 @@
+/* Centered responsive 2-column grid layout for my-arch-install */
+
+Screen {
+    align: center middle;
+    background: $background;
+}
+
+#window-frame {
+    width: 92%;
+    max-width: 116;
+    min-width: 72;
+    height: 90%;
+    max-height: 38;
+    min-height: 22;
+    border: round $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+#window-header {
+    height: 3;
+    padding: 0 2;
+    background: $panel;
+    border-bottom: solid $primary;
+    layout: horizontal;
+    align-vertical: middle;
+}
+
+#header-title {
+    width: 1fr;
+    text-style: bold;
+    color: $text;
+}
+
+#header-badges {
+    width: auto;
+    color: $accent;
+    text-style: bold;
+}
+
+#grid-body {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 54% 46%;
+    grid-gutter: 0 1;
+    height: 1fr;
+    padding: 1 2;
+}
+
+#left-pane {
+    height: 1fr;
+    border: round $panel;
+    padding: 0 1;
+    background: $surface;
+}
+
+#right-pane {
+    height: 1fr;
+    border: round $panel;
+    padding: 1 2;
+    background: $panel;
+}
+
+.pane-heading {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+.field-label {
+    margin-top: 1;
+    color: $text;
+    text-style: bold;
+}
+
+.hint-text {
+    color: $text-muted;
+}
+
+.error-text {
+    color: $error;
+    text-style: bold;
+}
+
+.ok-text {
+    color: $success;
+    text-style: bold;
+}
+
+.warn-text {
+    color: $warning;
+    text-style: bold;
+}
+
+.switch-row {
+    layout: horizontal;
+    height: 3;
+    align-vertical: middle;
+}
+
+.switch-label {
+    width: 1fr;
+    padding-right: 1;
+}
+
+.button-row {
+    layout: horizontal;
+    height: auto;
+    margin-top: 1;
+    align-vertical: middle;
+}
+
+.button-row Button {
+    margin-right: 1;
+}
+
+OptionList {
+    height: 1fr;
+    margin-top: 1;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+#window-footer {
+    height: 3;
+    padding: 0 2;
+    background: $panel;
+    border-top: solid $primary;
+    layout: horizontal;
+    align-vertical: middle;
+}
+
+#footer-keys {
+    width: 1fr;
+    color: $text-muted;
+}
+
+#footer-actions {
+    width: auto;
+    layout: horizontal;
+    align-vertical: middle;
+}
+
+#footer-actions Button {
+    margin-left: 1;
+    min-width: 10;
+}
+
+/* Progress Screen */
+
+#progress-body {
+    height: 1fr;
+    padding: 1 3;
+    layout: vertical;
+}
+
+.progress-section-title {
+    text-style: bold;
+    color: $accent;
+    margin-top: 1;
+}
+
+ProgressBar {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#steps-box {
+    border: round $panel;
+    background: $panel;
+    padding: 1 2;
+    height: auto;
+    margin-top: 1;
+}
+
+#log-drawer {
+    height: 10;
+    border: round $panel;
+    background: $background;
+    margin-top: 1;
+    display: none;
+}
+
+#log-drawer.visible {
+    display: block;
+}
+
+#error-banner {
+    border: round $error;
+    background: $panel;
+    color: $error;
+    padding: 1 2;
+    margin-top: 1;
+    display: none;
+}
+
+#error-banner.visible {
+    display: block;
+}
+
+/* Modal Confirmation */
+
+#modal-box {
+    width: 68;
+    max-width: 90%;
+    height: auto;
+    border: round $warning;
+    background: $surface;
+    padding: 1 2;
+}
+
+#modal-title {
+    text-style: bold;
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#modal-actions {
+    layout: horizontal;
+    height: auto;
+    margin-top: 1;
+    align-horizontal: right;
+}
+
+#modal-actions Button {
+    margin-left: 1;
+}
