@@ -46,6 +46,10 @@ class CleanToggle(Widget, can_focus=True):
             self.toggle = toggle
             self.value = value
 
+        @property
+        def control(self) -> CleanToggle:
+            return self.toggle
+
     def __init__(
         self,
         label: str,

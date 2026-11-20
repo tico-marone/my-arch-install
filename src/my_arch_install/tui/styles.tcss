@@ -103,7 +103,8 @@ Screen {
     text-style: bold;
 }
 
-Input {
+#window-frame Input,
+#modal-box Input {
     border: solid #686868;
     height: 3;
     padding: 0 1;
@@ -111,18 +112,25 @@ Input {
     color: $foreground;
 }
 
-Input:focus {
+#window-frame Input:focus,
+#modal-box Input:focus {
     border: solid $accent;
     background: $background;
     color: #ffffff;
 }
 
-Input:disabled {
+#window-frame Input:disabled,
+#modal-box Input:disabled {
     border: solid #686868;
     color: #686868;
 }
 
-Button {
+#window-frame Button,
+#window-frame Button:hover,
+#window-frame Button.-active,
+#modal-box Button,
+#modal-box Button:hover,
+#modal-box Button.-active {
     border: none;
     height: 1;
     min-width: 10;
@@ -131,48 +139,72 @@ Button {
     color: #ffffff;
 }
 
-Button:focus {
+#window-frame Button:focus,
+#modal-box Button:focus {
+    border: none;
     background: $primary;
     color: #ffffff;
     text-style: bold;
 }
 
-Button.-primary {
+#window-frame Button.-primary,
+#window-frame Button.-primary:hover,
+#window-frame Button.-primary.-active,
+#modal-box Button.-primary,
+#modal-box Button.-primary:hover,
+#modal-box Button.-primary.-active {
+    border: none;
     background: $secondary;
     color: #ffffff;
 }
 
-Button.-primary:focus {
+#window-frame Button.-primary:focus,
+#modal-box Button.-primary:focus {
+    border: none;
     background: $accent;
     color: #000000;
     text-style: bold;
 }
 
-Button.-success {
+#window-frame Button.-success,
+#window-frame Button.-success:hover,
+#window-frame Button.-success.-active {
+    border: none;
     background: $success;
     color: #000000;
     text-style: bold;
 }
 
-Button.-success:focus {
+#window-frame Button.-success:focus {
+    border: none;
     background: $accent;
     color: #000000;
     text-style: bold;
 }
 
-Button.-error {
+#window-frame Button.-error,
+#window-frame Button.-error:hover,
+#window-frame Button.-error.-active,
+#modal-box Button.-error,
+#modal-box Button.-error:hover,
+#modal-box Button.-error.-active {
+    border: none;
     background: $error;
     color: #ffffff;
     text-style: bold;
 }
 
-Button.-error:focus {
+#window-frame Button.-error:focus,
+#modal-box Button.-error:focus {
+    border: none;
     background: #ffffff;
     color: #000000;
     text-style: bold;
 }
 
-Button:disabled {
+#window-frame Button:disabled,
+#modal-box Button:disabled {
+    border: none;
     background: #000000;
     color: #686868;
 }
@@ -183,7 +215,8 @@ Button:disabled {
     margin-bottom: 1;
 }
 
-.tab-btn {
+#window-frame .tab-btn,
+#window-frame .tab-btn:hover {
     border: none;
     height: 1;
     padding: 0 2;
@@ -192,13 +225,16 @@ Button:disabled {
     color: #e5e5e5;
 }
 
-.tab-btn.active {
+#window-frame .tab-btn.active,
+#window-frame .tab-btn.active:hover {
+    border: none;
     background: $primary;
     color: #ffffff;
     text-style: bold;
 }
 
-.tab-btn:focus {
+#window-frame .tab-btn:focus {
+    border: none;
     background: $accent;
     color: #000000;
     text-style: bold;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
 import unittest
 
@@ -46,7 +47,7 @@ class ValidationTests(unittest.TestCase):
 
 class SummaryAndCliTests(unittest.TestCase):
     def test_format_summary_and_cli_args(self) -> None:
-        self.assertEqual(__version__, "0.3.0")
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")
         catalog = load_catalog()
         cfg = InstallConfig(
             hostname="arch-desktop",

@@ -5,6 +5,12 @@ All notable changes to `my-arch-install` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-20
+
+### Fixed
+- Expose the `control` property on `CleanToggle.Changed` so Textual `@on(..., "#selector")` handlers match without raising `OnDecoratorError`.
+- Increase CSS selector specificity on `#window-frame` and `#modal-box` buttons and inputs so Textual's default `tall` borders do not reappear on primary, hovered, or active states.
+
 ## [0.3.0] - 2026-11-20
 
 ### Changed
