@@ -18,8 +18,8 @@ def validate_hostname(value: str) -> tuple[bool, str]:
     if not cleaned:
         return False, "Hostname is required."
     if not HOSTNAME_RE.match(cleaned):
-        return False, "Use 1-63 lowercase letters, digits, or hyphens (no leading/trailing hyphen)."
-    return True, "Valid hostname."
+        return False, "1-63 lowercase letters, digits, or hyphens."
+    return True, "Valid"
 
 
 def validate_username(value: str) -> tuple[bool, str]:
@@ -27,10 +27,10 @@ def validate_username(value: str) -> tuple[bool, str]:
     if not cleaned:
         return False, "Username is required."
     if cleaned in RESERVED_USERNAMES:
-        return False, f"Username '{cleaned}' is reserved by the system."
+        return False, f"'{cleaned}' is reserved."
     if not USERNAME_RE.match(cleaned):
-        return False, "Start with a lowercase letter or '_', followed by [a-z0-9_-] (max 32 chars)."
-    return True, "Valid username."
+        return False, "Lowercase [a-z_][a-z0-9_-]* (max 32 chars)."
+    return True, "Valid"
 
 
 def validate_passwords(
@@ -47,15 +47,15 @@ def validate_passwords(
         return False, "User passwords do not match."
     if not same_root:
         if not root_pw:
-            return False, "Root password is required when separated from user password."
+            return False, "Root password is required."
         if root_pw != root_confirm:
             return False, "Root passwords do not match."
-    return True, "Password configuration is valid."
+    return True, "Valid"
 
 
 def format_install_summary(config: InstallConfig, catalog: PackageCatalog) -> str:
-    """Build a concise human-readable plan summary for the confirmation screen."""
-    disk_str = config.target_disk.label if config.target_disk else "(none selected)"
+    """Build a concise plan summary for the review screen."""
+    disk_str = config.target_disk.label if config.target_disk else "(none)"
     all_pkgs = config.all_packages(catalog.required_names)
     optional_curated = sorted(
         p for p in config.selected_curated_packages if p not in catalog.required_names
@@ -63,34 +63,32 @@ def format_install_summary(config: InstallConfig, catalog: PackageCatalog) -> st
     custom_names = sorted(config.custom_packages.keys())
 
     lines = [
-        "SYSTEM & LOCALIZATION",
+        "IDENTITY & LOCALIZATION",
         f"  Hostname        : {config.hostname}",
-        f"  Username        : {config.username} (wheel sudo)",
-        f"  Root Password   : {'Same as user' if config.same_root_password else 'Separate root password'}",
+        f"  Username        : {config.username} (wheel)",
+        f"  Root Password   : {'Same as user' if config.same_root_password else 'Separate'}",
         f"  Timezone        : {config.timezone}",
         f"  Locale          : {config.locale}",
         f"  Keymap          : {config.keymap}",
         "",
         "STORAGE & BOOT",
         f"  Target Disk     : {disk_str}",
-        f"  Partitioning    : GPT ({config.esp_size_mib} MiB FAT32 ESP + ext4 Root)",
-        "  Swap            : zram-generator (zstd)",
-        "  Kernel          : linux-zen (microcode embedded via mkinitcpio)",
-        "  Bootloader      : systemd-boot (UEFI standard)",
+        f"  Layout          : GPT ({config.esp_size_mib} MiB FAT32 /boot + ext4 /)",
+        "  Swap            : zram (zstd)",
+        "  Kernel          : linux-zen",
+        "  Bootloader      : systemd-boot",
         "",
-        "PACMAN, MIRRORS & AUR",
-        f"  pacman.conf     : Color={config.pacman.color}, VerbosePkgLists={config.pacman.verbose_pkg_lists}, "
-        f"ILoveCandy={config.pacman.i_love_candy}, Parallel={config.pacman.parallel_downloads}",
+        "SYSTEM & PACKAGES",
+        f"  pacman.conf     : Color={config.pacman.color}, Verbose={config.pacman.verbose_pkg_lists}, "
+        f"Candy={config.pacman.i_love_candy}, Parallel={config.pacman.parallel_downloads}",
         f"  [multilib]      : {'Enabled' if config.pacman.enable_multilib else 'Disabled'}",
-        f"  Cache Cleanup   : Clear install cache={config.pacman.clear_cache_after_install}, "
+        f"  Cache           : Clear={config.pacman.clear_cache_after_install}, "
         f"paccache.timer={config.pacman.enable_paccache_timer}",
-        f"  Mirrors         : mode={config.mirrors.mode}"
+        f"  Mirrors         : {config.mirrors.mode}"
         + (f" ({','.join(config.mirrors.countries)})" if config.mirrors.mode == "country" else ""),
         f"  AUR Helper      : {config.aur_helper}",
-        "",
-        f"PACKAGES ({len(all_pkgs)} total)",
-        f"  Core Required   : {len(catalog.required_names)} packages",
-        f"  Curated Optional: {', '.join(optional_curated) if optional_curated else '(none)'}",
-        f"  Custom (pacman) : {', '.join(custom_names) if custom_names else '(none)'}",
+        f"  Packages        : {len(all_pkgs)} total ({len(catalog.required_names)} core)",
+        f"  Optional        : {', '.join(optional_curated) if optional_curated else '(none)'}",
+        f"  Custom (repo)   : {', '.join(custom_names) if custom_names else '(none)'}",
     ]
     return "\n".join(lines)

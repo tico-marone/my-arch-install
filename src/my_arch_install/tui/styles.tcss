@@ -1,27 +1,40 @@
-/* Centered responsive 2-column grid layout for my-arch-install */
+/* Complete UI rewrite: spacious centered grid, zero 1/8th-block '#' artifacts, TTY-safe contrast */
+
+* {
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+    scrollbar-gutter: auto;
+    scrollbar-color: #2655d8;
+    scrollbar-color-hover: #18d4d4;
+    scrollbar-color-active: #18d4d4;
+    scrollbar-background: #686868;
+    scrollbar-background-hover: #686868;
+    scrollbar-background-active: #686868;
+}
 
 Screen {
     align: center middle;
     background: $background;
+    color: $foreground;
 }
 
 #window-frame {
-    width: 92%;
-    max-width: 116;
-    min-width: 72;
-    height: 90%;
-    max-height: 38;
+    width: 96%;
+    max-width: 152;
+    min-width: 76;
+    height: 94%;
+    max-height: 46;
     min-height: 22;
-    border: round $primary;
-    background: $surface;
+    border: solid $primary;
+    background: $background;
     layout: vertical;
 }
 
 #window-header {
     height: 3;
     padding: 0 2;
-    background: $panel;
-    border-bottom: solid $primary;
+    background: $surface;
+    border-bottom: solid #686868;
     layout: horizontal;
     align-vertical: middle;
 }
@@ -29,7 +42,7 @@ Screen {
 #header-title {
     width: 1fr;
     text-style: bold;
-    color: $text;
+    color: $foreground;
 }
 
 #header-badges {
@@ -41,24 +54,21 @@ Screen {
 #grid-body {
     layout: grid;
     grid-size: 2;
-    grid-columns: 54% 46%;
-    grid-gutter: 0 1;
+    grid-columns: 56% 44%;
+    grid-gutter: 0 2;
     height: 1fr;
     padding: 1 2;
 }
 
-#left-pane {
+#left-pane, #right-pane {
     height: 1fr;
-    border: round $panel;
-    padding: 0 1;
+    border: solid #686868;
+    padding: 1 2;
     background: $surface;
 }
 
-#right-pane {
-    height: 1fr;
-    border: round $panel;
-    padding: 1 2;
-    background: $panel;
+#left-pane:focus-within, #right-pane:focus-within {
+    border: solid $accent;
 }
 
 .pane-heading {
@@ -69,12 +79,13 @@ Screen {
 
 .field-label {
     margin-top: 1;
-    color: $text;
+    color: $foreground;
     text-style: bold;
 }
 
 .hint-text {
-    color: $text-muted;
+    color: #a8a8a8;
+    margin-bottom: 1;
 }
 
 .error-text {
@@ -92,68 +103,193 @@ Screen {
     text-style: bold;
 }
 
-.switch-row {
-    layout: horizontal;
+Input {
+    border: solid #686868;
     height: 3;
-    align-vertical: middle;
+    padding: 0 1;
+    background: $background;
+    color: $foreground;
 }
 
-.switch-label {
-    width: 1fr;
-    padding-right: 1;
+Input:focus {
+    border: solid $accent;
+    background: $background;
+    color: #ffffff;
+}
+
+Input:disabled {
+    border: solid #686868;
+    color: #686868;
+}
+
+Button {
+    border: none;
+    height: 1;
+    min-width: 10;
+    padding: 0 2;
+    background: #686868;
+    color: #ffffff;
+}
+
+Button:focus {
+    background: $primary;
+    color: #ffffff;
+    text-style: bold;
+}
+
+Button.-primary {
+    background: $secondary;
+    color: #ffffff;
+}
+
+Button.-primary:focus {
+    background: $accent;
+    color: #000000;
+    text-style: bold;
+}
+
+Button.-success {
+    background: $success;
+    color: #000000;
+    text-style: bold;
+}
+
+Button.-success:focus {
+    background: $accent;
+    color: #000000;
+    text-style: bold;
+}
+
+Button.-error {
+    background: $error;
+    color: #ffffff;
+    text-style: bold;
+}
+
+Button.-error:focus {
+    background: #ffffff;
+    color: #000000;
+    text-style: bold;
+}
+
+Button:disabled {
+    background: #000000;
+    color: #686868;
+}
+
+#tab-bar {
+    layout: horizontal;
+    height: 1;
+    margin-bottom: 1;
+}
+
+.tab-btn {
+    border: none;
+    height: 1;
+    padding: 0 2;
+    margin-right: 1;
+    background: #686868;
+    color: #e5e5e5;
+}
+
+.tab-btn.active {
+    background: $primary;
+    color: #ffffff;
+    text-style: bold;
+}
+
+.tab-btn:focus {
+    background: $accent;
+    color: #000000;
+    text-style: bold;
+}
+
+ContentSwitcher {
+    height: 1fr;
+}
+
+.switcher-pane {
+    height: 1fr;
+    layout: vertical;
+}
+
+CleanToggle {
+    height: 1;
+    margin-top: 1;
+    padding: 0 1;
+    background: $background;
+    color: $foreground;
+}
+
+CleanToggle:focus {
+    background: $primary;
+    color: #ffffff;
+    text-style: bold;
+}
+
+OptionList {
+    height: 1fr;
+    margin-top: 1;
+    border: none;
+    padding: 0;
+    background: $surface;
+    color: $foreground;
+}
+
+OptionList > .option-list--option {
+    padding: 0 1;
+}
+
+OptionList > .option-list--option-highlighted {
+    background: #686868;
+    color: #ffffff;
+    text-style: bold;
+}
+
+OptionList:focus > .option-list--option-highlighted {
+    background: $primary;
+    color: #ffffff;
+    text-style: bold;
+}
+
+OptionList > .option-list--option-disabled {
+    color: $accent;
+    text-style: bold;
 }
 
 .button-row {
     layout: horizontal;
-    height: auto;
+    height: 1;
     margin-top: 1;
-    align-vertical: middle;
 }
 
 .button-row Button {
     margin-right: 1;
 }
 
-OptionList {
-    height: 1fr;
-    margin-top: 1;
-}
-
-TabbedContent {
-    height: 1fr;
-}
-
-TabPane {
-    height: 1fr;
-    padding: 0;
-}
-
 #window-footer {
     height: 3;
     padding: 0 2;
-    background: $panel;
-    border-top: solid $primary;
+    background: $surface;
+    border-top: solid #686868;
     layout: horizontal;
     align-vertical: middle;
 }
 
 #footer-keys {
     width: 1fr;
-    color: $text-muted;
+    color: #a8a8a8;
 }
 
 #footer-actions {
     width: auto;
+    height: 1;
     layout: horizontal;
-    align-vertical: middle;
 }
 
 #footer-actions Button {
     margin-left: 1;
-    min-width: 10;
 }
-
-/* Progress Screen */
 
 #progress-body {
     height: 1fr;
@@ -167,22 +303,23 @@ TabPane {
     margin-top: 1;
 }
 
-ProgressBar {
+CleanProgressBar {
+    height: 1;
     width: 100%;
     margin-bottom: 1;
 }
 
 #steps-box {
-    border: round $panel;
-    background: $panel;
+    border: solid #686868;
+    background: $surface;
     padding: 1 2;
     height: auto;
     margin-top: 1;
 }
 
 #log-drawer {
-    height: 10;
-    border: round $panel;
+    height: 12;
+    border: solid #686868;
     background: $background;
     margin-top: 1;
     display: none;
@@ -193,8 +330,8 @@ ProgressBar {
 }
 
 #error-banner {
-    border: round $error;
-    background: $panel;
+    border: solid $error;
+    background: $surface;
     color: $error;
     padding: 1 2;
     margin-top: 1;
@@ -205,14 +342,12 @@ ProgressBar {
     display: block;
 }
 
-/* Modal Confirmation */
-
 #modal-box {
-    width: 68;
-    max-width: 90%;
+    width: 72;
+    max-width: 92%;
     height: auto;
-    border: round $warning;
-    background: $surface;
+    border: solid $warning;
+    background: $background;
     padding: 1 2;
 }
 
@@ -224,7 +359,7 @@ ProgressBar {
 
 #modal-actions {
     layout: horizontal;
-    height: auto;
+    height: 1;
     margin-top: 1;
     align-horizontal: right;
 }
