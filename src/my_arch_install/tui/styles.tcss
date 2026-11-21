@@ -1,4 +1,4 @@
-/* Spacious centered grid, zero clipping on right pane, calm unfocused buttons, TTY-safe contrast */
+/* Balanced 1fr/1fr grid, zero clipping, calm unfocused buttons, TTY-safe contrast */
 
 * {
     scrollbar-size-vertical: 1;
@@ -54,7 +54,7 @@ Screen {
 #grid-body {
     layout: grid;
     grid-size: 2;
-    grid-columns: 56fr 44fr;
+    grid-columns: 1fr 1fr;
     grid-gutter: 0 2;
     height: 1fr;
     padding: 1 2;
@@ -134,8 +134,6 @@ Screen {
     border: solid #686868;
     color: #686868;
 }
-
-/* Calm uniform gray for ALL unfocused buttons; only focused buttons highlight */
 
 #window-frame Button,
 #window-frame Button:hover,
@@ -290,16 +288,6 @@ OptionList > .option-list--option-disabled {
     text-style: bold;
 }
 
-.button-row {
-    layout: horizontal;
-    height: 1;
-    margin-top: 1;
-}
-
-.button-row Button {
-    margin-right: 1;
-}
-
 #window-footer {
     height: 3;
     padding: 0 2;
@@ -323,8 +311,6 @@ OptionList > .option-list--option-disabled {
 #footer-actions Button {
     margin-left: 1;
 }
-
-/* Progress Screen: Vertical layout (not nested VerticalScroll) so Log scrolls smoothly */
 
 #progress-body {
     height: 1fr;

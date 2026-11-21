@@ -1,4 +1,4 @@
-"""Minimalist, colorful, arrow-navigable wizard, modal, and progress screens."""
+"""Minimalist, balanced, colorful, arrow-navigable wizard and progress screens."""
 
 from __future__ import annotations
 
@@ -331,7 +331,11 @@ class LocalizationScreen(Screen[None]):
         focused = self.focused
         if isinstance(focused, Input):
             if event.key == "down":
-                self.query_one(self._active_list_id(), PackageOptionList).focus()
+                ol = self.query_one(self._active_list_id(), PackageOptionList)
+                if ol.option_count > 0:
+                    ol.focus()
+                else:
+                    self.query_one("#btn-next", Button).focus()
                 event.stop()
             return
 
@@ -852,7 +856,7 @@ class DiskScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 5: Unified Arrow-Navigable System, Pacman, AUR & Mirror Options
+# Screen 5: Unified Arrow-Navigable System, Pacman, AUR & Contextual Mirrors
 # ---------------------------------------------------------------------------
 
 
@@ -870,8 +874,8 @@ OPTION_HELP: dict[str, str] = {
     "mir:keep": "Keep Current Mirrorlist\nUses the Live ISO's existing /etc/pacman.d/mirrorlist.",
     "mir:country": "Rank by Country\nRanks fastest HTTPS mirrors in the selected countries.",
     "mir:worldwide": "Rank Worldwide\nRanks the 20 latest HTTPS mirrors globally by speed.",
-    "mir:countries": "Reflector Countries\nComma-separated country names used when 'Rank by country' is active.",
     "mir:target": "Install Reflector on Target\nInstalls reflector and enables reflector.timer on the target system.",
+    "mir:countries": "Reflector Countries\nComma-separated country names used when 'Rank by country' is active.",
     "mir:run": "Optimize Mirrors Now\nRuns reflector now and updates /etc/pacman.d/mirrorlist.",
 }
 
@@ -897,6 +901,23 @@ class CountriesModal(ModalScreen[str | None]):
     def on_mount(self) -> None:
         self.query_one("#inp-modal-countries", Input).focus()
 
+    def on_key(self, event: events.Key) -> None:
+        focused = self.focused
+        if isinstance(focused, Input) and event.key == "down":
+            self.query_one("#btn-c-apply", Button).focus()
+            event.stop()
+        elif isinstance(focused, Button):
+            if event.key == "up":
+                self.query_one("#inp-modal-countries", Input).focus()
+                event.stop()
+            elif event.key in {"left", "right"}:
+                _cycle_focus_buttons(
+                    self,
+                    ["#btn-c-cancel", "#btn-c-apply"],
+                    -1 if event.key == "left" else 1,
+                )
+                event.stop()
+
     @on(Input.Submitted, "#inp-modal-countries")
     def _on_submit(self, event: Input.Submitted) -> None:
         self.dismiss(event.value)
@@ -911,7 +932,7 @@ class CountriesModal(ModalScreen[str | None]):
 
 
 class OptionsAndMirrorsScreen(Screen[None]):
-    """Step 5/7: Unified list of pacman.conf, AUR helper, and Reflector options."""
+    """Step 5/7: Unified list of pacman.conf, AUR helper, and contextual Reflector options."""
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
 
@@ -947,7 +968,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
                     yield Button("Next ->", id="btn-next", variant="primary")
 
     def on_mount(self) -> None:
-        self._build_options()
+        self._build_options(preserve_id="opt:color")
         self._refresh_mirror_preview()
         self.query_one("#options-list", PackageOptionList).focus()
 
@@ -1003,12 +1024,12 @@ class OptionsAndMirrorsScreen(Screen[None]):
             "mir:keep": self._rad_prompt(cfg.mirrors.mode == "keep", "Keep current ISO mirrorlist"),
             "mir:country": self._rad_prompt(cfg.mirrors.mode == "country", "Rank by country"),
             "mir:worldwide": self._rad_prompt(cfg.mirrors.mode == "worldwide", "Rank worldwide"),
+            "mir:target": self._tog_prompt(cfg.mirrors.install_reflector_on_target, "Install reflector on target"),
             "mir:countries": _badge_option_text(
                 "[EDIT]",
                 "bold bright_cyan",
                 f"Countries: {', '.join(cfg.mirrors.countries) or '(none)'}",
             ),
-            "mir:target": self._tog_prompt(cfg.mirrors.install_reflector_on_target, "Install reflector on target"),
             "mir:run": _badge_option_text(
                 "[ ...]" if self._reflector_busy else "[ RUN]",
                 "bold bright_yellow" if self._reflector_busy else "bold bright_cyan",
@@ -1016,11 +1037,12 @@ class OptionsAndMirrorsScreen(Screen[None]):
             ),
         }
 
-    def _build_options(self) -> None:
+    def _build_options(self, *, preserve_id: str | None = None) -> None:
+        """Build options list (showing mirror actions contextually) while keeping cursor position."""
+        cfg = self.installer_app.config
         ol = self.query_one("#options-list", PackageOptionList)
-        ol.clear_options()
         prompts = self._option_prompts()
-        entries = [
+        entries: list[Option] = [
             Option("  PACMAN", disabled=True),
             Option(prompts["opt:color"], id="opt:color"),
             Option(prompts["opt:verbose"], id="opt:verbose"),
@@ -1039,16 +1061,24 @@ class OptionsAndMirrorsScreen(Screen[None]):
             Option(prompts["mir:keep"], id="mir:keep"),
             Option(prompts["mir:country"], id="mir:country"),
             Option(prompts["mir:worldwide"], id="mir:worldwide"),
-            Option(prompts["mir:countries"], id="mir:countries"),
             Option(prompts["mir:target"], id="mir:target"),
-            Option(prompts["mir:run"], id="mir:run", disabled=self._reflector_busy),
         ]
-        for opt in entries:
+        if cfg.mirrors.mode == "country":
+            entries.append(Option(prompts["mir:countries"], id="mir:countries"))
+        if cfg.mirrors.mode in {"country", "worldwide"}:
+            entries.append(Option(prompts["mir:run"], id="mir:run", disabled=self._reflector_busy))
+
+        ol.clear_options()
+        target_idx = 1
+        for idx, opt in enumerate(entries):
             ol.add_option(opt)
-        ol.highlighted = 1
+            if preserve_id and opt.id == preserve_id:
+                target_idx = idx
+        if ol.option_count > 0:
+            ol.highlighted = min(target_idx, ol.option_count - 1)
 
     def _sync_option_prompts_in_place(self) -> None:
-        """Update option labels without clearing OptionList so scroll stays stable."""
+        """Update option labels without rebuilding list when count does not change."""
         ol = self.query_one("#options-list", PackageOptionList)
         prompts = self._option_prompts()
         for oid, prompt in prompts.items():
@@ -1056,10 +1086,13 @@ class OptionsAndMirrorsScreen(Screen[None]):
                 ol.replace_option_prompt(oid, prompt)
             except OptionDoesNotExist:
                 continue
-        if self._reflector_busy:
-            ol.disable_option("mir:run")
-        else:
-            ol.enable_option("mir:run")
+        try:
+            if self._reflector_busy:
+                ol.disable_option("mir:run")
+            else:
+                ol.enable_option("mir:run")
+        except OptionDoesNotExist:
+            pass
 
     def _refresh_mirror_preview(self) -> None:
         mirrors = self.installer_app.config.mirrors.active_mirrors_preview or read_active_mirrors(limit=6)
@@ -1106,6 +1139,8 @@ class OptionsAndMirrorsScreen(Screen[None]):
             cfg.aur_helper = oid.split(":", 1)[1]  # type: ignore[assignment]
         elif oid in {"mir:keep", "mir:country", "mir:worldwide"}:
             cfg.mirrors.mode = oid.split(":", 1)[1]  # type: ignore[assignment]
+            self._build_options(preserve_id=oid)
+            return
         elif oid == "mir:countries":
             self.app.push_screen(
                 CountriesModal(cfg.mirrors.countries),
@@ -1180,7 +1215,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 6: Curated Packages + Live Official Search
+# Screen 6: Curated Packages + Streamlined Official Search
 # ---------------------------------------------------------------------------
 
 
@@ -1217,11 +1252,15 @@ class PackagesScreen(Screen[None]):
                             yield PackageOptionList(id="curated-list")
 
                         with Vertical(id="tab-search", classes="switcher-pane"):
-                            yield Input(placeholder="Search official repos (Enter to run)...", id="inp-search-pkg")
-                            with Horizontal(classes="button-row"):
-                                yield Button("Search", id="btn-search-pkg", variant="primary")
-                                yield Button("Sync Repo DB", id="btn-sync-db")
-                            yield Static("Enter keywords and press Enter.", id="search-status", classes="hint-text")
+                            yield Input(
+                                placeholder="Search official repos (type keyword + Enter)...",
+                                id="inp-search-pkg",
+                            )
+                            yield Static(
+                                "Press Enter to search official Arch repos (auto-syncs DB).",
+                                id="search-status",
+                                classes="hint-text",
+                            )
                             yield PackageOptionList(id="search-list")
 
                 with VerticalScroll(id="right-pane"):
@@ -1266,13 +1305,17 @@ class PackagesScreen(Screen[None]):
         if isinstance(focused, Input):
             if event.key == "down":
                 if self._active_tab == "tab-curated":
-                    self.query_one("#curated-list", PackageOptionList).focus()
+                    ol = self.query_one("#curated-list", PackageOptionList)
+                    if ol.option_count > 0:
+                        ol.focus()
+                    else:
+                        self.query_one("#btn-next", Button).focus()
                 else:
                     sl = self.query_one("#search-list", PackageOptionList)
                     if sl.option_count > 0:
                         sl.focus()
                     else:
-                        self.query_one("#btn-search-pkg", Button).focus()
+                        self.query_one("#btn-next", Button).focus()
                 event.stop()
             return
 
@@ -1293,18 +1336,12 @@ class PackagesScreen(Screen[None]):
             elif isinstance(focused, Button) and focused.id in {"btn-back", "btn-next"}:
                 _cycle_focus_buttons(self, ["#btn-back", "#btn-next"], 1)
                 event.stop()
-            elif isinstance(focused, Button) and focused.id in {"btn-search-pkg", "btn-sync-db"}:
-                _cycle_focus_buttons(self, ["#btn-search-pkg", "#btn-sync-db"], 1)
-                event.stop()
         elif event.key == "left":
             if isinstance(focused, OptionList):
                 self.query_one("#btn-back", Button).focus()
                 event.stop()
             elif isinstance(focused, Button) and focused.id in {"btn-back", "btn-next"}:
                 _cycle_focus_buttons(self, ["#btn-back", "#btn-next"], -1)
-                event.stop()
-            elif isinstance(focused, Button) and focused.id in {"btn-search-pkg", "btn-sync-db"}:
-                _cycle_focus_buttons(self, ["#btn-search-pkg", "#btn-sync-db"], -1)
                 event.stop()
         elif event.key == "up" and isinstance(focused, Button) and focused.id in {"btn-back", "btn-next"}:
             self._focus_active_content()
@@ -1429,32 +1466,6 @@ class PackagesScreen(Screen[None]):
     def _on_search_submitted(self) -> None:
         self._trigger_search()
 
-    @on(Button.Pressed, "#btn-search-pkg")
-    def _on_search_clicked(self) -> None:
-        self._trigger_search()
-
-    @on(Button.Pressed, "#btn-sync-db")
-    def _on_sync_clicked(self) -> None:
-        if shutil.which("pacman") is None:
-            self.query_one("#search-status", Static).update("pacman unavailable on this host.")
-            return
-        self.query_one("#search-status", Static).update("Syncing temporary database...")
-        self._sync_db_worker()
-
-    @work(thread=True)
-    def _sync_db_worker(self) -> None:
-        try:
-            sync_temp_pacman_db(enable_multilib=self.installer_app.config.pacman.enable_multilib)
-            self.app.call_from_thread(
-                self.query_one("#search-status", Static).update,
-                "Database synced.",
-            )
-        except Exception as exc:
-            self.app.call_from_thread(
-                self.query_one("#search-status", Static).update,
-                f"Sync error: {exc}",
-            )
-
     def _trigger_search(self) -> None:
         if shutil.which("pacman") is None:
             self.query_one("#search-status", Static).update("pacman unavailable on this host.")
@@ -1492,7 +1503,7 @@ class PackagesScreen(Screen[None]):
             status.update(f"No matches for '{query}'.")
             return
 
-        status.update(f"{len(results)} match(es). Space/Enter to select.")
+        status.update(f"{len(results)} match(es). Space/Enter to select. / to search again.")
         custom = self.installer_app.config.custom_packages
         for pkg in results[:120]:
             self._search_results[pkg.name] = pkg
@@ -1612,13 +1623,23 @@ class ConfirmInstallModal(ModalScreen[bool]):
         self.query_one("#inp-confirm", Input).focus()
 
     def on_key(self, event: events.Key) -> None:
-        if isinstance(self.focused, Button) and event.key in {"left", "right"}:
-            _cycle_focus_buttons(
-                self,
-                ["#btn-modal-cancel", "#btn-modal-confirm"],
-                -1 if event.key == "left" else 1,
-            )
+        focused = self.focused
+        if isinstance(focused, Input) and event.key == "down":
+            confirm_btn = self.query_one("#btn-modal-confirm", Button)
+            target = confirm_btn if not confirm_btn.disabled else self.query_one("#btn-modal-cancel", Button)
+            target.focus()
             event.stop()
+        elif isinstance(focused, Button):
+            if event.key == "up":
+                self.query_one("#inp-confirm", Input).focus()
+                event.stop()
+            elif event.key in {"left", "right"}:
+                _cycle_focus_buttons(
+                    self,
+                    ["#btn-modal-cancel", "#btn-modal-confirm"],
+                    -1 if event.key == "left" else 1,
+                )
+                event.stop()
 
     @on(Input.Changed, "#inp-confirm")
     def _on_confirm_changed(self, event: Input.Changed) -> None:
@@ -1724,11 +1745,13 @@ class InstallProgressScreen(Screen[None]):
         super().__init__()
         self._step_states: list[StepState] = [StepState.PENDING] * len(STEP_TITLES)
         self._start_time: float = 0.0
+        self._last_elapsed_sec: int = -1
         self._finished: bool = False
         self._failed: bool = False
         self._timer = None
         self._log_sync_timer = None
         self._log_offset: int = 0
+        self._auto_follow_log: bool = True
 
     @property
     def installer_app(self) -> MyArchInstallApp:
@@ -1754,7 +1777,7 @@ class InstallProgressScreen(Screen[None]):
 
                 yield Static(self._render_steps(), id="steps-box")
                 yield Static("", id="error-banner")
-                yield Log(id="log-drawer", max_lines=1000, auto_scroll=False)
+                yield Log(id="log-drawer", max_lines=5000, auto_scroll=False)
 
             with Horizontal(id="window-footer"):
                 yield Static(f"L: Details (Hidden)   Up/Down: Scroll Log   {self.installer_app.runner.log_path}", id="footer-keys")
@@ -1765,10 +1788,23 @@ class InstallProgressScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._start_time = time.monotonic()
-        self._timer = self.set_interval(1.0, self._tick_elapsed)
+        self._timer = self.set_interval(0.2, self._tick_elapsed)
         self._log_sync_timer = self.set_interval(0.15, self._sync_log_drawer)
         self.query_one("#btn-toggle-log", Button).focus()
         self._run_installation_worker()
+
+    def _recheck_follow_at_bottom(self) -> None:
+        drawer = self.query_one("#log-drawer", Log)
+        if drawer.max_scroll_y <= 0 or drawer.is_vertical_scroll_end or (drawer.max_scroll_y - drawer.scroll_y) <= 2:
+            self._auto_follow_log = True
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        if self.query_one("#log-drawer", Log).has_class("visible"):
+            self._auto_follow_log = False
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        if self.query_one("#log-drawer", Log).has_class("visible"):
+            self.call_after_refresh(self._recheck_follow_at_bottom)
 
     def on_key(self, event: events.Key) -> None:
         drawer = self.query_one("#log-drawer", Log)
@@ -1783,28 +1819,35 @@ class InstallProgressScreen(Screen[None]):
             event.stop()
             return
 
-        if drawer_visible and not isinstance(self.focused, Log):
-            if event.key == "up":
-                drawer.scroll_up(animate=False)
+        if not drawer_visible:
+            return
+
+        if event.key in {"up", "pageup", "home"}:
+            self._auto_follow_log = False
+            if not isinstance(self.focused, Log):
+                if event.key == "up":
+                    drawer.scroll_up(animate=False)
+                elif event.key == "pageup":
+                    drawer.scroll_page_up(animate=False)
+                else:
+                    drawer.scroll_home(animate=False)
                 event.stop()
-            elif event.key == "down":
-                drawer.scroll_down(animate=False)
-                event.stop()
-            elif event.key == "pageup":
-                drawer.scroll_page_up(animate=False)
-                event.stop()
-            elif event.key == "pagedown":
-                drawer.scroll_page_down(animate=False)
-                event.stop()
-            elif event.key == "home":
-                drawer.scroll_home(animate=False)
-                event.stop()
-            elif event.key == "end":
-                drawer.scroll_end(animate=False)
+        elif event.key in {"down", "pagedown", "end"}:
+            if event.key == "end":
+                self._auto_follow_log = True
+            else:
+                self.call_after_refresh(self._recheck_follow_at_bottom)
+            if not isinstance(self.focused, Log):
+                if event.key == "down":
+                    drawer.scroll_down(animate=False)
+                elif event.key == "pagedown":
+                    drawer.scroll_page_down(animate=False)
+                else:
+                    drawer.scroll_end(animate=False)
                 event.stop()
 
     def _sync_log_drawer(self) -> None:
-        """Tail new lines directly from the real log file and auto-scroll if at bottom."""
+        """Tail new lines from the real log file and auto-scroll after layout refresh."""
         new_lines, new_offset = read_appended_log_lines(
             self.installer_app.runner.log_path,
             self._log_offset,
@@ -1813,17 +1856,17 @@ class InstallProgressScreen(Screen[None]):
             return
         self._log_offset = new_offset
         drawer = self.query_one("#log-drawer", Log)
-        at_bottom = (
-            drawer.max_scroll_y <= 0
-            or drawer.is_vertical_scroll_end
-            or (drawer.max_scroll_y - drawer.scroll_y) <= 2
-        )
-        drawer.write_lines(new_lines, scroll_end=at_bottom)
+        drawer.write_lines(new_lines, scroll_end=False)
+        if self._auto_follow_log and drawer.has_class("visible"):
+            self.call_after_refresh(lambda: drawer.scroll_end(animate=False))
 
     def _tick_elapsed(self) -> None:
         if self._finished:
             return
         elapsed = int(time.monotonic() - self._start_time)
+        if elapsed == self._last_elapsed_sec:
+            return
+        self._last_elapsed_sec = elapsed
         mins, secs = divmod(elapsed, 60)
         self.query_one("#header-badges", Static).update(f"{mins:02d}:{secs:02d}")
 
@@ -1853,6 +1896,7 @@ class InstallProgressScreen(Screen[None]):
             f"L: Details ({state_word})   Up/Down: Scroll Log   {self.installer_app.runner.log_path}"
         )
         if visible:
+            self._auto_follow_log = True
             self._sync_log_drawer()
             self.call_after_refresh(lambda: drawer.scroll_end(animate=False))
 
@@ -1909,6 +1953,7 @@ class InstallProgressScreen(Screen[None]):
         self._failed = True
         if self._timer is not None:
             self._timer.stop()
+        self._auto_follow_log = True
         self._sync_log_drawer()
         if self._log_sync_timer is not None:
             self._log_sync_timer.stop()
