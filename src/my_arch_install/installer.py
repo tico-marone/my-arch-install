@@ -24,6 +24,11 @@ HOOKS_LINE = (
     "sd-vconsole block filesystems fsck)"
 )
 
+SILENT_BOOT_PARAMS = (
+    "quiet loglevel=3 systemd.show_status=auto "
+    "rd.udev.log_level=3 vt.global_cursor_default=0"
+)
+
 
 def configure_mkinitcpio_conf(content: str) -> str:
     """Ensure mkinitcpio.conf uses modern systemd-based initramfs hooks."""
@@ -45,23 +50,32 @@ def render_zram_generator_conf() -> str:
     )
 
 
-def render_loader_conf() -> str:
+def render_loader_conf(*, timeout: int = 3) -> str:
     """Return /boot/loader/loader.conf content for systemd-boot."""
+    safe_timeout = max(0, min(timeout, 60))
     return (
         "default arch.conf\n"
-        "timeout 3\n"
+        f"timeout {safe_timeout}\n"
         "console-mode max\n"
         "editor no\n"
     )
 
 
-def render_boot_entry(root_uuid: str, kernel: str = "linux-zen") -> str:
+def render_boot_entry(
+    root_uuid: str,
+    kernel: str = "linux-zen",
+    *,
+    silent_boot: bool = False,
+) -> str:
     """Return /boot/loader/entries/arch.conf content (microcode packed in initramfs)."""
+    options = f"root=UUID={root_uuid} rw"
+    if silent_boot:
+        options = f"{options} {SILENT_BOOT_PARAMS}"
     return (
         f"title   Arch Linux ({kernel})\n"
         f"linux   /vmlinuz-{kernel}\n"
         f"initrd  /initramfs-{kernel}.img\n"
-        f"options root=UUID={root_uuid} rw\n"
+        f"options {options}\n"
     )
 
 
@@ -91,11 +105,17 @@ def clear_target_pkg_cache(target_root: Path, *, dry_run: bool, runner: CommandR
 
 
 class PacmanProgressTracker:
-    """Tracks monotonic pacstrap/pacman progress across download, install, and hooks."""
+    """Tracks monotonic pacstrap/pacman progress across download, verify, install, and hooks."""
 
     _STEP_RE = re.compile(r"^\(\s*(\d+)/(\d+)\)\s+(.+)$")
-    _PACKAGES_COUNT_RE = re.compile(r"^Packages\s+\((\d+)\)")
+    _PACKAGES_COUNT_RE = re.compile(r"^Packages?\s+\((\d+)\)")
     _DOWNLOADING_RE = re.compile(r"^([^\s]+)\s+downloading\.\.\.$")
+    _INSTALLING_RE = re.compile(r"^(installing|upgrading)\s+(\S+?)\.\.\.$", re.IGNORECASE)
+    _VERIFY_SIMPLE_RE = re.compile(
+        r"^(checking keyring|checking package integrity|loading package files|"
+        r"checking for file conflicts|checking available disk space)\.\.\.$",
+        re.IGNORECASE,
+    )
     _PKG_BASENAME_RE = re.compile(r"^(.+)-[^-]+-[^-]+-[^-]+$")
 
     def __init__(self) -> None:
@@ -103,6 +123,7 @@ class PacmanProgressTracker:
         self.label: str = "Preparing pacstrap transaction..."
         self.expected_downloads: int = 0
         self.downloaded_count: int = 0
+        self.installed_count: int = 0
 
     @classmethod
     def _clean_pkg_name(cls, filename: str) -> str:
@@ -132,15 +153,37 @@ class PacmanProgressTracker:
 
         dl_m = self._DOWNLOADING_RE.match(stripped)
         if dl_m:
+            raw_name = dl_m.group(1)
+            if raw_name.endswith(".sig"):
+                return None
             self.downloaded_count += 1
-            pkg_name = self._clean_pkg_name(dl_m.group(1))
+            pkg_name = self._clean_pkg_name(raw_name)
             if self.expected_downloads > 0:
-                ratio = min(1.0, self.downloaded_count / self.expected_downloads)
+                total = max(self.expected_downloads, self.downloaded_count)
+                ratio = min(1.0, self.downloaded_count / total)
                 pct = 5.0 + ratio * 30.0
-                self.label = f"Downloading ({self.downloaded_count}/{self.expected_downloads}): {pkg_name}"
+                self.label = f"Downloading ({self.downloaded_count}/{total}): {pkg_name}"
             else:
                 pct = min(35.0, max(5.0, self.percent + 0.25))
                 self.label = f"Downloading ({self.downloaded_count}): {pkg_name}"
+            self.percent = max(self.percent, pct)
+            return self.percent, self.label
+
+        ver_m = self._VERIFY_SIMPLE_RE.match(stripped)
+        if ver_m:
+            self.percent = max(self.percent, 40.0)
+            self.label = f"Verifying: {ver_m.group(1)}..."
+            return self.percent, self.label
+
+        inst_m = self._INSTALLING_RE.match(stripped)
+        if inst_m:
+            action, pkg_name = inst_m.groups()
+            self.installed_count += 1
+            total = max(self.expected_downloads, self.downloaded_count, self.installed_count, 1)
+            ratio = min(1.0, self.installed_count / total)
+            pct = 45.0 + ratio * 45.0
+            verb = "Upgrading" if action.lower() == "upgrading" else "Installing"
+            self.label = f"{verb} ({self.installed_count}/{total}): {pkg_name}"
             self.percent = max(self.percent, pct)
             return self.percent, self.label
 
@@ -501,10 +544,17 @@ class ArchInstaller:
             if not root_uuid:
                 raise RuntimeError(f"Could not determine UUID for root partition {root_part}")
 
-        self.runner.write_file(TARGET_ROOT / "boot" / "loader" / "loader.conf", render_loader_conf())
+        self.runner.write_file(
+            TARGET_ROOT / "boot" / "loader" / "loader.conf",
+            render_loader_conf(timeout=self.config.boot_timeout),
+        )
         self.runner.write_file(
             TARGET_ROOT / "boot" / "loader" / "entries" / "arch.conf",
-            render_boot_entry(root_uuid, kernel="linux-zen"),
+            render_boot_entry(
+                root_uuid,
+                kernel="linux-zen",
+                silent_boot=self.config.boot_silent,
+            ),
         )
 
     def _step_aur_and_cleanup(self, idx: int) -> None:

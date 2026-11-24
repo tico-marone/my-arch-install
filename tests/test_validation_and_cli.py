@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -53,6 +52,8 @@ class SummaryAndCliTests(unittest.TestCase):
             hostname="arch-desktop",
             username="alex",
             user_password="secret",
+            boot_silent=True,
+            boot_timeout=0,
             target_disk=DiskInfo("sda", "/dev/sda", 256 * 1024**3, "SSD", "sata", False),
             selected_curated_packages=set(catalog.default_selected_names),
             custom_packages={"htop": SearchedPackage("extra", "htop", "3.3-1", "Process viewer")},
@@ -60,6 +61,7 @@ class SummaryAndCliTests(unittest.TestCase):
         summary = format_install_summary(cfg, catalog)
         self.assertIn("arch-desktop", summary)
         self.assertIn("linux-zen", summary)
+        self.assertIn("timeout=0s, silent=True", summary)
         self.assertIn("htop", summary)
 
         args = build_parser().parse_args(["--dry-run", "--theme", "ansi-dark"])

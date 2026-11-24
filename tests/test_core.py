@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from my_arch_install import __version__
 from my_arch_install.catalog import load_catalog
 from my_arch_install.installer import (
+    SILENT_BOOT_PARAMS,
     ArchInstaller,
     PacmanProgressTracker,
     clear_target_pkg_cache,
@@ -57,20 +58,32 @@ class SystemProbeTests(unittest.TestCase):
         self.assertEqual(partition_paths("/dev/nvme0n1"), ("/dev/nvme0n1p1", "/dev/nvme0n1p2"))
         self.assertEqual(partition_paths("/dev/mmcblk0"), ("/dev/mmcblk0p1", "/dev/mmcblk0p2"))
 
-    def test_parse_lsblk_filters_protected_and_loop(self) -> None:
+    def test_parse_lsblk_filters_protected_and_boot_children(self) -> None:
         raw = """
         {
           "blockdevices": [
             {"name": "loop0", "path": "/dev/loop0", "size": 1048576, "model": null, "tran": null, "type": "loop", "ro": true, "rm": false},
-            {"name": "sda", "path": "/dev/sda", "size": 256060514304, "model": "Samsung SSD 860", "tran": "sata", "type": "disk", "ro": false, "rm": false},
-            {"name": "sdb", "path": "/dev/sdb", "size": 16000000000, "model": "Arch Live USB", "tran": "usb", "type": "disk", "ro": false, "rm": true}
+            {"name": "sda", "path": "/dev/sda", "size": 256060514304, "model": "Samsung SSD 860", "tran": "sata", "type": "disk", "ro": false, "rm": false, "children": []},
+            {"name": "sdb", "path": "/dev/sdb", "size": 16000000000, "model": "Live USB", "tran": "usb", "type": "disk", "ro": false, "rm": true,
+             "children": [
+               {"name": "sdb1", "type": "part", "mountpoints": ["/run/archiso/bootmnt"], "label": "ARCH_202611", "fstype": "iso9660"}
+             ]
+            },
+            {"name": "sdc", "path": "/dev/sdc", "size": 16000000000, "model": "Ventoy USB", "tran": "usb", "type": "disk", "ro": false, "rm": true,
+             "children": [
+               {"name": "sdc1", "type": "part", "label": "Ventoy", "fstype": "exfat",
+                "children": [{"name": "dm-0", "type": "dm", "mountpoints": ["/run/archiso/bootmnt"]}]
+               }
+             ]
+            },
+            {"name": "sdd", "path": "/dev/sdd", "size": 32000000000, "model": "Data Stick", "tran": "usb", "type": "disk", "ro": false, "rm": true}
           ]
         }
         """
-        disks = parse_lsblk_disks(raw, protected_names={"sdb"})
-        self.assertEqual(len(disks), 1)
-        self.assertEqual(disks[0].path, "/dev/sda")
+        disks = parse_lsblk_disks(raw, protected_names=set())
+        self.assertEqual([d.path for d in disks], ["/dev/sda", "/dev/sdd"])
         self.assertIn("SATA", disks[0].label)
+        self.assertIn("[USB]", disks[1].label)
 
     def test_parse_locale_gen(self) -> None:
         sample = "# Configuration file for locale-gen\n#en_US.UTF-8 UTF-8  \n#id_ID.UTF-8 UTF-8\n#en_US ISO-8859-1\n"
@@ -186,20 +199,36 @@ class RunnerAndInstallerTests(unittest.TestCase):
         self.assertIn("sd-vconsole", updated)
 
         self.assertIn("zram-size", render_zram_generator_conf())
-        self.assertIn("default arch.conf", render_loader_conf())
-        entry = render_boot_entry("1234-ABCD")
+        self.assertIn("timeout 0", render_loader_conf(timeout=0))
+
+        entry = render_boot_entry("1234-ABCD", silent_boot=False)
         self.assertIn("linux   /vmlinuz-linux-zen", entry)
         self.assertIn("initrd  /initramfs-linux-zen.img", entry)
         self.assertNotIn("intel-ucode.img", entry)
+        self.assertNotIn("quiet", entry)
 
-    def test_pacman_progress_tracker_monotonic(self) -> None:
+        silent_entry = render_boot_entry("1234-ABCD", silent_boot=True)
+        self.assertIn(SILENT_BOOT_PARAMS, silent_entry)
+
+    def test_pacman_progress_tracker_piped_download_and_install(self) -> None:
         tracker = PacmanProgressTracker()
-        p1 = tracker.feed("(1/10) downloading firefox-132.0-1-x86_64.pkg.tar.zst")
-        p2 = tracker.feed("(5/10) installing plasma-desktop")
-        p3 = tracker.feed("(2/4) Updating icon theme caches...")
-        assert p1 and p2 and p3
-        self.assertLess(p1[0], p2[0])
+        p0 = tracker.feed("Package (4)  New Version  Net Change  Download Size")
+        p1 = tracker.feed(" xz-5.8.4-1-x86_64 downloading...")
+        p2 = tracker.feed(" x264-3:0.165.r3222.b35605a-2-x86_64 downloading...")
+        p3 = tracker.feed("checking keyring...")
+        p4 = tracker.feed("installing qt6-base...")
+        p5 = tracker.feed("installing breeze-icons...")
+        p6 = tracker.feed("(2/4) Updating icon theme caches...")
+        assert p0 and p1 and p2 and p3 and p4 and p5 and p6
+        self.assertEqual(p1, (12.5, "Downloading (1/4): xz"))
+        self.assertEqual(p2, (20.0, "Downloading (2/4): x264"))
+        self.assertEqual(p3[0], 40.0)
+        self.assertIn("Installing (1/4): qt6-base", p4[1])
+        self.assertIn("Installing (2/4): breeze-icons", p5[1])
         self.assertLess(p2[0], p3[0])
+        self.assertLess(p3[0], p4[0])
+        self.assertLess(p4[0], p5[0])
+        self.assertLess(p5[0], p6[0])
 
     def test_clear_target_pkg_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -221,6 +250,8 @@ class RunnerAndInstallerTests(unittest.TestCase):
                 username="alex",
                 user_password="secret",
                 aur_helper="paru",
+                boot_silent=True,
+                boot_timeout=0,
                 target_disk=DiskInfo("sda", "/dev/sda", 256 * 1024**3, "SSD", "sata", False),
                 selected_curated_packages=set(catalog.default_selected_names),
                 custom_packages={
@@ -250,6 +281,8 @@ class RunnerAndInstallerTests(unittest.TestCase):
             )
             log_text = log_file.read_text(encoding="utf-8")
             self.assertIn(f"my-arch-install v{__version__}", log_text)
+            self.assertIn("timeout 0", log_text)
+            self.assertIn(SILENT_BOOT_PARAMS, log_text)
             self.assertNotIn("secret", log_text)
             self.assertIn("[stdin redacted]", log_text)
 

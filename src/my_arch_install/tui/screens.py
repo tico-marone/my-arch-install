@@ -879,7 +879,7 @@ class DiskScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 5: Unified Arrow-Navigable System, Pacman, AUR & Contextual Mirrors
+# Screen 5: Unified System, Bootloader, AUR & Contextual Mirror Options
 # ---------------------------------------------------------------------------
 
 
@@ -891,6 +891,17 @@ OPTION_HELP: dict[str, str] = {
     "opt:clear_cache": "Clear Cache After Install\nRemoves downloaded .pkg.tar.zst archives from target cache.",
     "opt:paccache": "Weekly paccache.timer\nInstalls pacman-contrib and schedules weekly cache pruning.",
     "opt:parallel": "ParallelDownloads\nCycles concurrent pacman download streams (3 / 5 / 8 / 10).",
+    "boot:silent": (
+        "Silent Boot\n"
+        "Hides normal kernel and systemd startup logs during boot\n"
+        "(quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3\n"
+        "vt.global_cursor_default=0). Service errors still appear if any fail."
+    ),
+    "boot:timeout": (
+        "Bootloader Timeout\n"
+        "Cycles systemd-boot menu timeout in seconds (0 / 1 / 3 / 5 / 10).\n"
+        "Set 0s to boot directly (hold Space during startup to open the menu)."
+    ),
     "aur:paru-bin": "paru-bin\nPrebuilt AUR helper binary; installs without compiling Rust.",
     "aur:paru": "paru\nCompiled in /var/tmp; removes build-time Rust afterward.",
     "aur:none": "No AUR Helper\nSkips paru, base-devel, and git.",
@@ -955,7 +966,7 @@ class CountriesModal(ModalScreen[str | None]):
 
 
 class OptionsAndMirrorsScreen(Screen[None]):
-    """Step 5/7: Unified list of pacman.conf, AUR helper, and contextual Reflector options."""
+    """Step 5/7: Unified list of pacman.conf, systemd-boot, AUR, and Reflector options."""
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
 
@@ -1041,6 +1052,12 @@ class OptionsAndMirrorsScreen(Screen[None]):
                 "bold bright_cyan",
                 "Parallel downloads",
             ),
+            "boot:silent": self._tog_prompt(cfg.boot_silent, "Silent boot (hide startup logs)"),
+            "boot:timeout": _badge_option_text(
+                f"[ {cfg.boot_timeout:2d}s]",
+                "bold bright_cyan",
+                "Boot menu timeout (0s = instant)",
+            ),
             "aur:paru-bin": self._rad_prompt(cfg.aur_helper == "paru-bin", "paru-bin (prebuilt)"),
             "aur:paru": self._rad_prompt(cfg.aur_helper == "paru", "paru (compile in /var/tmp)"),
             "aur:none": self._rad_prompt(cfg.aur_helper == "none", "none (skip AUR helper)"),
@@ -1073,6 +1090,10 @@ class OptionsAndMirrorsScreen(Screen[None]):
             Option(prompts["opt:clear_cache"], id="opt:clear_cache"),
             Option(prompts["opt:paccache"], id="opt:paccache"),
             Option(prompts["opt:parallel"], id="opt:parallel"),
+            Option("", disabled=True),
+            Option("  BOOT (SYSTEMD-BOOT)", disabled=True),
+            Option(prompts["boot:silent"], id="boot:silent"),
+            Option(prompts["boot:timeout"], id="boot:timeout"),
             Option("", disabled=True),
             Option("  AUR HELPER", disabled=True),
             Option(prompts["aur:paru-bin"], id="aur:paru-bin"),
@@ -1157,6 +1178,13 @@ class OptionsAndMirrorsScreen(Screen[None]):
             cur = cfg.pacman.parallel_downloads
             nxt = choices[(choices.index(cur) + 1) % len(choices)] if cur in choices else 5
             cfg.pacman.parallel_downloads = nxt
+        elif oid == "boot:silent":
+            cfg.boot_silent = not cfg.boot_silent
+        elif oid == "boot:timeout":
+            timeouts = (0, 1, 3, 5, 10)
+            cur = cfg.boot_timeout
+            nxt = timeouts[(timeouts.index(cur) + 1) % len(timeouts)] if cur in timeouts else 3
+            cfg.boot_timeout = nxt
         elif oid.startswith("aur:"):
             cfg.aur_helper = oid.split(":", 1)[1]  # type: ignore[assignment]
         elif oid in {"mir:keep", "mir:country", "mir:worldwide"}:
@@ -1879,7 +1907,7 @@ class InstallProgressScreen(Screen[None]):
                 yield Log(id="log-drawer", max_lines=5000, auto_scroll=False)
 
             with Horizontal(id="window-footer"):
-                yield Static(f"L: Details (Hidden)   Arrows: Scroll Log   Tab: Buttons", id="footer-keys")
+                yield Static("L: Details (Hidden)   Arrows: Scroll Log   Tab: Buttons", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("Details (L)", id="btn-toggle-log")
                     yield Button("Exit", id="btn-exit", disabled=True)

@@ -143,9 +143,11 @@ class InstallConfig:
     root_password: str = ""
     same_root_password: bool = True
 
-    # Storage
+    # Storage & Boot
     target_disk: DiskInfo | None = None
     esp_size_mib: int = 1024
+    boot_silent: bool = False
+    boot_timeout: int = 3
 
     # Options & AUR
     pacman: PacmanOptions = field(default_factory=PacmanOptions)

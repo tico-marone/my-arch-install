@@ -76,7 +76,7 @@ def format_install_summary(config: InstallConfig, catalog: PackageCatalog) -> st
         f"  Layout          : GPT ({config.esp_size_mib} MiB FAT32 /boot + ext4 /)",
         "  Swap            : zram (zstd)",
         "  Kernel          : linux-zen",
-        "  Bootloader      : systemd-boot",
+        f"  Bootloader      : systemd-boot (timeout={config.boot_timeout}s, silent={config.boot_silent})",
         "",
         "SYSTEM & PACKAGES",
         f"  pacman.conf     : Color={config.pacman.color}, Verbose={config.pacman.verbose_pkg_lists}, "
