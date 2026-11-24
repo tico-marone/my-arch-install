@@ -94,15 +94,31 @@ class PacmanProgressTracker:
     """Tracks monotonic pacstrap/pacman progress across download, install, and hooks."""
 
     _STEP_RE = re.compile(r"^\(\s*(\d+)/(\d+)\)\s+(.+)$")
+    _PACKAGES_COUNT_RE = re.compile(r"^Packages\s+\((\d+)\)")
+    _DOWNLOADING_RE = re.compile(r"^([^\s]+)\s+downloading\.\.\.$")
+    _PKG_BASENAME_RE = re.compile(r"^(.+)-[^-]+-[^-]+-[^-]+$")
 
     def __init__(self) -> None:
         self.percent: float = 0.0
         self.label: str = "Preparing pacstrap transaction..."
+        self.expected_downloads: int = 0
+        self.downloaded_count: int = 0
+
+    @classmethod
+    def _clean_pkg_name(cls, filename: str) -> str:
+        m = cls._PKG_BASENAME_RE.match(filename)
+        return m.group(1) if m else filename
 
     def feed(self, line: str) -> tuple[float, str] | None:
         stripped = line.strip()
         if not stripped:
             return None
+
+        pkg_count_m = self._PACKAGES_COUNT_RE.match(stripped)
+        if pkg_count_m:
+            self.expected_downloads = max(1, int(pkg_count_m.group(1)))
+            self.label = f"Resolving {self.expected_downloads} packages..."
+            return self.percent, self.label
 
         if stripped.startswith(":: Synchronizing package databases"):
             self.percent = max(self.percent, 2.0)
@@ -112,6 +128,20 @@ class PacmanProgressTracker:
         if stripped.startswith(":: Retrieving packages"):
             self.percent = max(self.percent, 5.0)
             self.label = "Retrieving packages..."
+            return self.percent, self.label
+
+        dl_m = self._DOWNLOADING_RE.match(stripped)
+        if dl_m:
+            self.downloaded_count += 1
+            pkg_name = self._clean_pkg_name(dl_m.group(1))
+            if self.expected_downloads > 0:
+                ratio = min(1.0, self.downloaded_count / self.expected_downloads)
+                pct = 5.0 + ratio * 30.0
+                self.label = f"Downloading ({self.downloaded_count}/{self.expected_downloads}): {pkg_name}"
+            else:
+                pct = min(35.0, max(5.0, self.percent + 0.25))
+                self.label = f"Downloading ({self.downloaded_count}): {pkg_name}"
+            self.percent = max(self.percent, pct)
             return self.percent, self.label
 
         if stripped.startswith(":: Running post-transaction hooks"):
@@ -482,8 +512,6 @@ class ArchInstaller:
             aur_pkg = self.config.aur_helper
             username = self.config.username
             temp_sudoers = TARGET_ROOT / "etc" / "sudoers.d" / "99-my-arch-install-aur"
-            # Use /var/tmp inside target root (ext4 disk-backed) rather than /tmp (RAM-capped tmpfs),
-            # then wipe it completely via both trap EXIT and Python's finally block.
             chroot_build_dir = "/var/tmp/my-arch-install-aur"
             build_dir_target = TARGET_ROOT / "var" / "tmp" / "my-arch-install-aur"
             makepkg_cfg = f"{chroot_build_dir}/makepkg.conf"

@@ -83,7 +83,8 @@ class DiskInfo:
     def label(self) -> str:
         model_text = self.model.strip() or "Unknown model"
         tran_text = (self.transport or "disk").upper()
-        return f"{self.path}  ({self.size_gib:.1f} GiB · {tran_text} · {model_text})"
+        rm_tag = " [USB]" if self.removable or tran_text == "USB" else ""
+        return f"{self.path}  ({self.size_gib:.1f} GiB · {tran_text}{rm_tag} · {model_text})"
 
 
 @dataclass(frozen=True, slots=True)

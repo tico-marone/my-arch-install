@@ -5,6 +5,18 @@ All notable changes to `my-arch-install` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-11-24
+
+### Added
+- Collapse locked core dependencies in Step 6 under an expandable `[ + ] Required Core Packages` row by default so toggleable packages stay front and center.
+- Tag remaining non-boot removable USB drives with `[USB]` in Step 4 disk labels.
+
+### Fixed
+- Exclude Live ISO boot media reliably in Step 4 by walking full `lsblk` hierarchies (`lsblk -s`), `/proc/cmdline` boot labels/devices, `iso9660`/`ARCH_`/`Ventoy` markers, and `/run/archiso/*` mountpoints.
+- Keep disabled group headers visible above the highlighted item when scrolling back up in Step 5 and Step 6.
+- Focus `#log-drawer` when Details (`L`) is opened so `Left`/`Right` scroll horizontally and `Up`/`Down` scroll vertically.
+- Parse `Packages (N)` and `<pkg> downloading...` lines in `PacmanProgressTracker` so Step 3 shows active package download counts and progress instead of staying static at `Retrieving packages...`.
+
 ## [0.3.3] - 2026-11-21
 
 ### Changed

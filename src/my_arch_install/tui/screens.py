@@ -90,6 +90,29 @@ def _badge_option_text(badge: str, badge_style: str, label: str) -> Text:
     return t
 
 
+def _ensure_group_header_visible(ol: OptionList, highlighted_idx: int) -> None:
+    """Keep the disabled group header directly above the highlighted row visible."""
+    if highlighted_idx <= 0:
+        ol.scroll_home(animate=False)
+        return
+    y = highlighted_idx - 1
+    first_header_y: int | None = None
+    while y >= 0:
+        try:
+            opt = ol.get_option_at_index(y)
+        except Exception:
+            break
+        if not opt.disabled:
+            break
+        if str(opt.prompt).strip():
+            first_header_y = y
+        y -= 1
+    if y < 0:
+        ol.scroll_home(animate=False)
+    elif first_header_y is not None and ol.scroll_y > first_header_y:
+        ol.scroll_to(y=first_header_y, animate=False)
+
+
 # ---------------------------------------------------------------------------
 # Screen 1: Pre-flight Check
 # ---------------------------------------------------------------------------
@@ -701,7 +724,7 @@ class DiskScreen(Screen[None]):
             with Container(id="grid-body"):
                 with Vertical(id="left-pane"):
                     yield Static("Available Disks", classes="pane-heading")
-                    yield Static("Boot media is automatically excluded.", classes="hint-text")
+                    yield Static("Live boot media is excluded automatically.", classes="hint-text")
                     yield PackageOptionList(id="disk-list")
 
                 with VerticalScroll(id="right-pane"):
@@ -1038,7 +1061,6 @@ class OptionsAndMirrorsScreen(Screen[None]):
         }
 
     def _build_options(self, *, preserve_id: str | None = None) -> None:
-        """Build options list (showing mirror actions contextually) while keeping cursor position."""
         cfg = self.installer_app.config
         ol = self.query_one("#options-list", PackageOptionList)
         prompts = self._option_prompts()
@@ -1078,7 +1100,6 @@ class OptionsAndMirrorsScreen(Screen[None]):
             ol.highlighted = min(target_idx, ol.option_count - 1)
 
     def _sync_option_prompts_in_place(self) -> None:
-        """Update option labels without rebuilding list when count does not change."""
         ol = self.query_one("#options-list", PackageOptionList)
         prompts = self._option_prompts()
         for oid, prompt in prompts.items():
@@ -1108,6 +1129,7 @@ class OptionsAndMirrorsScreen(Screen[None]):
 
     @on(OptionList.OptionHighlighted, "#options-list")
     def _on_opt_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        _ensure_group_header_visible(event.option_list, event.option_index)
         if event.option_id and event.option_id in OPTION_HELP:
             self.query_one("#opt-help", Static).update(OPTION_HELP[event.option_id])
 
@@ -1215,12 +1237,15 @@ class OptionsAndMirrorsScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
-# Screen 6: Curated Packages + Streamlined Official Search
+# Screen 6: Curated Packages (Collapsible Locked Core) + Official Search
 # ---------------------------------------------------------------------------
 
 
+LOCKED_TOGGLE_ID = "__toggle_locked__"
+
+
 class PackagesScreen(Screen[None]):
-    """Step 6/7: Toggle curated packages and search official Arch repositories."""
+    """Step 6/7: Toggle optional packages, inspect collapsible locked core, and search repos."""
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
 
@@ -1229,6 +1254,7 @@ class PackagesScreen(Screen[None]):
         self._search_results: dict[str, SearchedPackage] = {}
         self._details_cache: dict[str, PackageDetails] = {}
         self._active_tab = "tab-curated"
+        self._show_locked_core = False
 
     @property
     def installer_app(self) -> MyArchInstallApp:
@@ -1371,35 +1397,86 @@ class PackagesScreen(Screen[None]):
             return _badge_option_text("[ ON ]", "bold bright_green", label)
         return _badge_option_text("[    ]", "white", label)
 
-    def _populate_curated(self, filter_text: str) -> None:
+    def _populate_curated(self, filter_text: str, *, preserve_id: str | None = None) -> None:
         ol = self.query_one("#curated-list", PackageOptionList)
         ol.clear_options()
         catalog = self.installer_app.catalog
         cfg = self.installer_app.config
         q = filter_text.strip().lower()
 
-        first_section = True
-        for group_id, group in catalog.groups.items():
-            items = [
-                pkg
-                for pkg in catalog.by_group(group_id)
-                if not q or q in pkg.name.lower() or q in pkg.summary.lower()
-            ]
-            if not items:
-                continue
-            if not first_section:
-                ol.add_option(Option("", disabled=True))
-            first_section = False
-            ol.add_option(Option(f"  {group.title.upper()}", disabled=True))
-            for pkg in items:
-                ol.add_option(
-                    Option(
-                        self._format_curated_prompt(pkg.name, pkg.repo, pkg.required, cfg.selected_curated_packages),
-                        id=pkg.name,
-                    )
+        entries: list[Option] = []
+
+        if not q:
+            locked_pkgs = [p for p in catalog.packages if p.required]
+            glyph = "[ - ]" if self._show_locked_core else "[ + ]"
+            entries.append(
+                Option(
+                    _badge_option_text(
+                        glyph,
+                        "bold bright_yellow",
+                        f"Required Core Packages ({len(locked_pkgs)} locked)",
+                    ),
+                    id=LOCKED_TOGGLE_ID,
                 )
-        if ol.option_count > 1:
-            ol.highlighted = 1
+            )
+            if self._show_locked_core:
+                entries.append(Option("  REQUIRED CORE (LOCKED)", disabled=True))
+                for pkg in locked_pkgs:
+                    entries.append(
+                        Option(
+                            self._format_curated_prompt(
+                                pkg.name, pkg.repo, True, cfg.selected_curated_packages
+                            ),
+                            id=pkg.name,
+                        )
+                    )
+
+            for group_id, group in catalog.groups.items():
+                items = [pkg for pkg in catalog.by_group(group_id) if not pkg.required]
+                if not items:
+                    continue
+                entries.append(Option("", disabled=True))
+                entries.append(Option(f"  {group.title.upper()}", disabled=True))
+                for pkg in items:
+                    entries.append(
+                        Option(
+                            self._format_curated_prompt(
+                                pkg.name, pkg.repo, False, cfg.selected_curated_packages
+                            ),
+                            id=pkg.name,
+                        )
+                    )
+        else:
+            first_section = True
+            for group_id, group in catalog.groups.items():
+                items = [
+                    pkg
+                    for pkg in catalog.by_group(group_id)
+                    if q in pkg.name.lower() or q in pkg.summary.lower()
+                ]
+                if not items:
+                    continue
+                if not first_section:
+                    entries.append(Option("", disabled=True))
+                first_section = False
+                entries.append(Option(f"  {group.title.upper()}", disabled=True))
+                for pkg in items:
+                    entries.append(
+                        Option(
+                            self._format_curated_prompt(
+                                pkg.name, pkg.repo, pkg.required, cfg.selected_curated_packages
+                            ),
+                            id=pkg.name,
+                        )
+                    )
+
+        target_idx = 0
+        for idx, opt in enumerate(entries):
+            ol.add_option(opt)
+            if preserve_id and opt.id == preserve_id:
+                target_idx = idx
+        if ol.option_count > 0:
+            ol.highlighted = target_idx
 
     def _update_total_count(self) -> None:
         cfg = self.installer_app.config
@@ -1411,6 +1488,20 @@ class PackagesScreen(Screen[None]):
         self.query_one("#pkg-count-footer", Static).update(t)
 
     def _inspect_curated_pkg(self, pkg_name: str) -> None:
+        if pkg_name == LOCKED_TOGGLE_ID:
+            req_count = len(self.installer_app.catalog.required_names)
+            t = Text()
+            t.append("Required Core Packages\n", style="bold bright_yellow")
+            t.append(f"Count  : {req_count} mandatory packages\n")
+            t.append(f"State  : {'Expanded' if self._show_locked_core else 'Collapsed'}\n\n")
+            t.append(
+                "Contains essential Arch Linux, Intel HD 4000, PipeWire, and KDE Plasma "
+                "core dependencies that cannot be deselected.\n\n"
+                "Press Space or Enter to expand or collapse this list."
+            )
+            self.query_one("#pkg-inspector", Static).update(t)
+            return
+
         pkg = self.installer_app.catalog.by_name(pkg_name)
         if pkg is None:
             return
@@ -1436,6 +1527,7 @@ class PackagesScreen(Screen[None]):
 
     @on(OptionList.OptionHighlighted, "#curated-list")
     def _on_curated_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        _ensure_group_header_visible(event.option_list, event.option_index)
         if event.option_id:
             self._inspect_curated_pkg(event.option_id)
 
@@ -1443,6 +1535,13 @@ class PackagesScreen(Screen[None]):
     def _on_curated_toggled(self, event: OptionList.OptionSelected) -> None:
         if not event.option_id:
             return
+        if event.option_id == LOCKED_TOGGLE_ID:
+            self._show_locked_core = not self._show_locked_core
+            q = self.query_one("#filter-curated", Input).value
+            self._populate_curated(q, preserve_id=LOCKED_TOGGLE_ID)
+            self._inspect_curated_pkg(LOCKED_TOGGLE_ID)
+            return
+
         pkg = self.installer_app.catalog.by_name(event.option_id)
         if pkg is None:
             return
@@ -1780,7 +1879,7 @@ class InstallProgressScreen(Screen[None]):
                 yield Log(id="log-drawer", max_lines=5000, auto_scroll=False)
 
             with Horizontal(id="window-footer"):
-                yield Static(f"L: Details (Hidden)   Up/Down: Scroll Log   {self.installer_app.runner.log_path}", id="footer-keys")
+                yield Static(f"L: Details (Hidden)   Arrows: Scroll Log   Tab: Buttons", id="footer-keys")
                 with Horizontal(id="footer-actions"):
                     yield Button("Details (L)", id="btn-toggle-log")
                     yield Button("Exit", id="btn-exit", disabled=True)
@@ -1809,22 +1908,28 @@ class InstallProgressScreen(Screen[None]):
     def on_key(self, event: events.Key) -> None:
         drawer = self.query_one("#log-drawer", Log)
         drawer_visible = drawer.has_class("visible")
+        focused = self.focused
 
-        if event.key in {"left", "right"}:
-            _cycle_focus_buttons(
-                self,
-                ["#btn-toggle-log", "#btn-exit", "#btn-reboot"],
-                -1 if event.key == "left" else 1,
-            )
-            event.stop()
-            return
+        if isinstance(focused, Button):
+            if event.key in {"left", "right"}:
+                _cycle_focus_buttons(
+                    self,
+                    ["#btn-toggle-log", "#btn-exit", "#btn-reboot"],
+                    -1 if event.key == "left" else 1,
+                )
+                event.stop()
+                return
+            if event.key == "up" and drawer_visible:
+                drawer.focus()
+                event.stop()
+                return
 
         if not drawer_visible:
             return
 
         if event.key in {"up", "pageup", "home"}:
             self._auto_follow_log = False
-            if not isinstance(self.focused, Log):
+            if not isinstance(focused, Log):
                 if event.key == "up":
                     drawer.scroll_up(animate=False)
                 elif event.key == "pageup":
@@ -1837,7 +1942,7 @@ class InstallProgressScreen(Screen[None]):
                 self._auto_follow_log = True
             else:
                 self.call_after_refresh(self._recheck_follow_at_bottom)
-            if not isinstance(self.focused, Log):
+            if not isinstance(focused, Log):
                 if event.key == "down":
                     drawer.scroll_down(animate=False)
                 elif event.key == "pagedown":
@@ -1845,6 +1950,12 @@ class InstallProgressScreen(Screen[None]):
                 else:
                     drawer.scroll_end(animate=False)
                 event.stop()
+        elif event.key in {"left", "right"} and not isinstance(focused, Log):
+            if event.key == "left":
+                drawer.scroll_left(animate=False)
+            else:
+                drawer.scroll_right(animate=False)
+            event.stop()
 
     def _sync_log_drawer(self) -> None:
         """Tail new lines from the real log file and auto-scroll after layout refresh."""
@@ -1893,12 +2004,16 @@ class InstallProgressScreen(Screen[None]):
         visible = drawer.has_class("visible")
         state_word = "Visible" if visible else "Hidden"
         self.query_one("#footer-keys", Static).update(
-            f"L: Details ({state_word})   Up/Down: Scroll Log   {self.installer_app.runner.log_path}"
+            f"L: Details ({state_word})   Arrows: Scroll Log   Tab: Buttons"
         )
         if visible:
             self._auto_follow_log = True
             self._sync_log_drawer()
+            drawer.focus()
             self.call_after_refresh(lambda: drawer.scroll_end(animate=False))
+        else:
+            if not self._finished:
+                self.query_one("#btn-toggle-log", Button).focus()
 
     @on(Button.Pressed, "#btn-toggle-log")
     def _on_toggle_btn(self) -> None:

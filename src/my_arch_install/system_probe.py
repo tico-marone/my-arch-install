@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -93,37 +94,110 @@ def run_preflight() -> PreflightStatus:
     )
 
 
+def _resolve_backing_disk_names(device_path: str) -> set[str]:
+    """Walk inverse block hierarchy (`lsblk -s`) to find underlying physical disk names."""
+    resolved = os.path.realpath(device_path)
+    if not resolved.startswith("/dev/"):
+        return set()
+    names: set[str] = set()
+    try:
+        res = subprocess.run(
+            ["lsblk", "-n", "-s", "-o", "NAME,TYPE", resolved],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if res.returncode == 0:
+            for raw in res.stdout.splitlines():
+                parts = raw.split()
+                if len(parts) >= 2 and parts[1].lower() == "disk":
+                    names.add(parts[0].strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if not names:
+        try:
+            pk = subprocess.run(
+                ["lsblk", "-n", "-o", "PKNAME", resolved],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            parent = pk.stdout.strip()
+            if parent:
+                names.add(parent)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return names
+
+
 def _live_boot_disk_names() -> set[str]:
-    """Identify block device names backing the Live ISO or host root to avoid wiping them."""
+    """Identify physical disk names backing the Live ISO (dd, Rufus, Ventoy, copytoram) or host root."""
     protected: set[str] = set()
-    for mount_point in ("/", "/run/archiso/bootmnt"):
+    mount_points = (
+        "/",
+        "/boot",
+        "/run/archiso/bootmnt",
+        "/run/archiso/img_dev",
+        "/run/archiso/airootfs",
+    )
+    for mp in mount_points:
         try:
             res = subprocess.run(
-                ["findmnt", "-n", "-o", "SOURCE", mount_point],
+                ["findmnt", "-n", "-o", "SOURCE", mp],
                 capture_output=True,
                 text=True,
                 timeout=2,
             )
             src = res.stdout.strip()
             if src.startswith("/dev/"):
-                pk = subprocess.run(
-                    ["lsblk", "-n", "-o", "PKNAME", src],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                parent = pk.stdout.strip()
-                if parent:
-                    protected.add(parent)
-                else:
-                    protected.add(Path(src).name)
+                protected.update(_resolve_backing_disk_names(src))
         except (OSError, subprocess.SubprocessError):
             continue
+
+    cmdline_path = Path("/proc/cmdline")
+    if cmdline_path.exists():
+        cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore")
+        for match in re.finditer(r"(?:archisolabel|img_label)=([^\s]+)", cmdline):
+            label = match.group(1)
+            by_label = Path(f"/dev/disk/by-label/{label}")
+            if by_label.exists():
+                protected.update(_resolve_backing_disk_names(str(by_label)))
+        for match in re.finditer(r"(?:archisodevice|img_dev)=([^\s]+)", cmdline):
+            dev = match.group(1)
+            if dev.startswith("/dev/"):
+                protected.update(_resolve_backing_disk_names(dev))
+
     return protected
 
 
+def _node_is_boot_or_root_media(node: dict) -> bool:
+    """Recursively inspect a block device and its children for live ISO / root indicators."""
+    mounts: list[str] = []
+    if isinstance(node.get("mountpoints"), list):
+        mounts.extend(str(m) for m in node["mountpoints"] if m)
+    if node.get("mountpoint"):
+        mounts.append(str(node["mountpoint"]))
+
+    for mp in mounts:
+        if mp in {"/", "/boot"} or mp.startswith("/run/archiso"):
+            return True
+
+    fstype = str(node.get("fstype") or "").lower()
+    if fstype == "iso9660":
+        return True
+
+    label = str(node.get("label") or "")
+    if label.upper().startswith("ARCH_") or label.lower() == "ventoy":
+        return True
+
+    for child in node.get("children") or []:
+        if isinstance(child, dict) and _node_is_boot_or_root_media(child):
+            return True
+    return False
+
+
 def parse_lsblk_disks(raw_json: str, protected_names: set[str] | None = None) -> list[DiskInfo]:
-    """Parse `lsblk -J -b -d` JSON output into candidate DiskInfo entries."""
+    """Parse `lsblk -J -b` JSON tree into candidate DiskInfo entries, excluding boot media."""
     protected = protected_names or set()
     data = json.loads(raw_json)
     disks: list[DiskInfo] = []
@@ -135,7 +209,7 @@ def parse_lsblk_disks(raw_json: str, protected_names: set[str] | None = None) ->
             continue
         if name.startswith(("loop", "ram", "zram", "sr", "fd")):
             continue
-        if name in protected:
+        if name in protected or _node_is_boot_or_root_media(dev):
             continue
         size_val = int(dev.get("size") or 0)
         if size_val <= 0:
@@ -154,10 +228,16 @@ def parse_lsblk_disks(raw_json: str, protected_names: set[str] | None = None) ->
 
 
 def discover_disks() -> list[DiskInfo]:
-    """List candidate physical target disks via lsblk."""
+    """List candidate physical target disks via full lsblk hierarchy."""
     try:
         res = subprocess.run(
-            ["lsblk", "-J", "-b", "-d", "-o", "NAME,PATH,SIZE,MODEL,TRAN,TYPE,RO,RM"],
+            [
+                "lsblk",
+                "-J",
+                "-b",
+                "-o",
+                "NAME,PATH,SIZE,MODEL,TRAN,TYPE,RO,RM,MOUNTPOINTS,LABEL,FSTYPE",
+            ],
             capture_output=True,
             text=True,
             check=True,
