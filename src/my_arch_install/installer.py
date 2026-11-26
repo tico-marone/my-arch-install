@@ -14,6 +14,13 @@ from .models import InstallConfig, ProgressEvent, StepState
 from .pacman_ops import configure_pacman_conf
 from .runner import CommandRunner
 from .system_probe import partition_paths
+from .zsh_setup import (
+    ATUIN_CONFIG_CONTENT,
+    KONSOLE_PROFILE_CONTENT,
+    KONSOLE_RC_CONTENT,
+    STARSHIP_TOML_CONTENT,
+    ZSHRC_CONTENT,
+)
 
 
 TARGET_ROOT = Path("/mnt")
@@ -233,7 +240,7 @@ STEP_TITLES = (
     "Partition and format target SSD (ESP + ext4)",
     "Mount target filesystems",
     "Install base system, kernel, and KDE Plasma",
-    "Configure localization, identity, zram, and initramfs",
+    "Configure localization, identity, shell, zram, and initramfs",
     "Install and configure systemd-boot",
     "Install AUR helper and clean up target system",
 )
@@ -457,14 +464,14 @@ class ArchInstaller:
             res = self.runner.run(["genfstab", "-U", str(TARGET_ROOT)])
             self.runner.write_file(TARGET_ROOT / "etc" / "fstab", res.stdout)
 
-        self._emit(idx, StepState.RUNNING, f"Setting timezone ({self.config.timezone})...", task_percent=22.0)
+        self._emit(idx, StepState.RUNNING, f"Setting timezone ({self.config.timezone})...", task_percent=20.0)
         self.runner.arch_chroot(
             TARGET_ROOT,
             ["ln", "-sf", f"/usr/share/zoneinfo/{self.config.timezone}", "/etc/localtime"],
         )
         self.runner.arch_chroot(TARGET_ROOT, ["hwclock", "--systohc"])
 
-        self._emit(idx, StepState.RUNNING, f"Generating locale ({self.config.locale})...", task_percent=35.0)
+        self._emit(idx, StepState.RUNNING, f"Generating locale ({self.config.locale})...", task_percent=32.0)
         locale_gen_path = TARGET_ROOT / "etc" / "locale.gen"
         if locale_gen_path.exists() and not self.runner.dry_run:
             lines = locale_gen_path.read_text(encoding="utf-8").splitlines()
@@ -487,26 +494,27 @@ class ArchInstaller:
         self.runner.write_file(TARGET_ROOT / "etc" / "locale.conf", f"LANG={self.config.locale}\n")
         self.runner.write_file(TARGET_ROOT / "etc" / "vconsole.conf", f"KEYMAP={self.config.keymap}\n")
 
-        self._emit(idx, StepState.RUNNING, f"Configuring hostname ({self.config.hostname})...", task_percent=48.0)
+        self._emit(idx, StepState.RUNNING, f"Configuring hostname ({self.config.hostname})...", task_percent=42.0)
         self.runner.write_file(TARGET_ROOT / "etc" / "hostname", f"{self.config.hostname}\n")
         self.runner.write_file(TARGET_ROOT / "etc" / "hosts", render_hosts(self.config.hostname))
 
-        self._emit(idx, StepState.RUNNING, "Configuring zram-generator (zstd)...", task_percent=58.0)
+        self._emit(idx, StepState.RUNNING, "Configuring zram-generator (zstd)...", task_percent=52.0)
         self.runner.write_file(
             TARGET_ROOT / "etc" / "systemd" / "zram-generator.conf",
             render_zram_generator_conf(),
         )
 
-        self._emit(idx, StepState.RUNNING, "Building initramfs (systemd + microcode hooks)...", task_percent=70.0)
+        self._emit(idx, StepState.RUNNING, "Building initramfs (systemd + microcode hooks)...", task_percent=64.0)
         mkinit_path = TARGET_ROOT / "etc" / "mkinitcpio.conf"
         mkinit_raw = mkinit_path.read_text(encoding="utf-8") if mkinit_path.exists() else ""
         self.runner.write_file(mkinit_path, configure_mkinitcpio_conf(mkinit_raw))
         self.runner.arch_chroot(TARGET_ROOT, ["mkinitcpio", "-P"])
 
-        self._emit(idx, StepState.RUNNING, f"Creating user account ({self.config.username})...", task_percent=84.0)
+        user_shell = "/usr/bin/zsh" if self.config.shell == "zsh" else "/bin/bash"
+        self._emit(idx, StepState.RUNNING, f"Creating user account ({self.config.username})...", task_percent=76.0)
         self.runner.arch_chroot(
             TARGET_ROOT,
-            ["useradd", "-m", "-G", "wheel", "-s", "/bin/bash", self.config.username],
+            ["useradd", "-m", "-G", "wheel", "-s", user_shell, self.config.username],
         )
         self.runner.arch_chroot(
             TARGET_ROOT,
@@ -520,13 +528,64 @@ class ArchInstaller:
             mode=0o440,
         )
 
-        self._emit(idx, StepState.RUNNING, "Enabling systemd services...", task_percent=94.0)
+        if self.config.shell == "zsh":
+            self._configure_zsh_for_user(idx)
+
+        self._emit(idx, StepState.RUNNING, "Enabling systemd services...", task_percent=95.0)
         services = ["NetworkManager.service", "plasmalogin.service", "systemd-timesyncd.service"]
         if self.config.pacman.enable_paccache_timer:
             services.append("paccache.timer")
         if self.config.mirrors.install_reflector_on_target:
             services.append("reflector.timer")
         self.runner.arch_chroot(TARGET_ROOT, ["systemctl", "enable", *services])
+
+    def _configure_zsh_for_user(self, idx: int) -> None:
+        """Install curated Zsh, Starship, Atuin, Zinit, pkgfile, and git-delta config."""
+        username = self.config.username
+        home_target = TARGET_ROOT / "home" / username
+        all_pkgs = self.config.all_packages(self.catalog.required_names)
+
+        self._emit(idx, StepState.RUNNING, "Writing Zsh, Starship, and Atuin configs...", task_percent=82.0)
+        self.runner.write_file(home_target / ".zshrc", ZSHRC_CONTENT)
+        self.runner.write_file(home_target / ".config" / "starship.toml", STARSHIP_TOML_CONTENT)
+        self.runner.write_file(home_target / ".config" / "atuin" / "config.toml", ATUIN_CONFIG_CONTENT)
+
+        if "konsole" in all_pkgs:
+            self.runner.write_file(home_target / ".config" / "konsolerc", KONSOLE_RC_CONTENT)
+            self.runner.write_file(
+                home_target / ".local" / "share" / "konsole" / "Default.profile",
+                KONSOLE_PROFILE_CONTENT,
+            )
+
+        self.runner.arch_chroot(
+            TARGET_ROOT,
+            ["chown", "-R", f"{username}:{username}", f"/home/{username}"],
+        )
+
+        self._emit(idx, StepState.RUNNING, "Updating pkgfile database...", task_percent=86.0)
+        self.runner.arch_chroot(TARGET_ROOT, ["pkgfile", "--update"])
+
+        self._emit(idx, StepState.RUNNING, "Initializing Zinit, git-delta, and Atuin...", task_percent=90.0)
+        user_zsh_script = (
+            "set -euo pipefail; "
+            "mkdir -p ~/.config/atuin ~/.local/state/zsh ~/.cache/zsh ~/.local/share/zinit; "
+            "if [ ! -d ~/.local/share/zinit/zinit.git ]; then "
+            "git clone https://github.com/zdharma-continuum/zinit.git ~/.local/share/zinit/zinit.git; "
+            "fi; "
+            "git config --global core.pager delta; "
+            'git config --global interactive.diffFilter "delta --color-only"; '
+            "git config --global delta.navigate true; "
+            "git config --global delta.line-numbers true; "
+            "git config --global delta.side-by-side true; "
+            "git config --global merge.conflictstyle zdiff3; "
+            'export ATUIN_CONFIG_DIR="$HOME/.config/atuin"; '
+            "atuin import auto || true; "
+            "rm -f ~/.zcompdump* ~/.cache/zsh/.zcompdump*"
+        )
+        self.runner.arch_chroot(
+            TARGET_ROOT,
+            ["su", "-s", "/bin/bash", username, "-c", user_zsh_script],
+        )
 
     def _step_install_bootloader(self, idx: int) -> None:
         assert self.config.target_disk is not None

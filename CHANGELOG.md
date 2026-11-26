@@ -5,6 +5,14 @@ All notable changes to `my-arch-install` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-26
+
+### Added
+- Add interactive `SHELL` selector in Step 5 (`bash` default or `zsh` modern stack).
+- Add `zsh_setup.py` containing the 13 curated Arch packages (`zsh`, `git`, `starship`, `zoxide`, `fzf`, `atuin`, `eza`, `bat`, `fd`, `ripgrep`, `git-delta`, `pkgfile`, `ttf-jetbrains-mono-nerd`) and templates for `~/.zshrc`, `~/.config/starship.toml`, and `~/.config/atuin/config.toml`.
+- Automatically configure user shell (`/usr/bin/zsh`), `pkgfile --update`, Zinit clone, global `git-delta` settings, `atuin import auto`, and Konsole `JetBrainsMono Nerd Font` profile when `zsh` is selected.
+- Show selected login shell in Step 7 review summary.
+
 ## [0.3.5] - 2026-11-24
 
 ### Added

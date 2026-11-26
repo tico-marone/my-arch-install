@@ -61,11 +61,13 @@ def format_install_summary(config: InstallConfig, catalog: PackageCatalog) -> st
         p for p in config.selected_curated_packages if p not in catalog.required_names
     )
     custom_names = sorted(config.custom_packages.keys())
+    shell_str = "zsh (Zinit + Starship + fzf + Atuin)" if config.shell == "zsh" else "bash (default)"
 
     lines = [
         "IDENTITY & LOCALIZATION",
         f"  Hostname        : {config.hostname}",
         f"  Username        : {config.username} (wheel)",
+        f"  Shell           : {shell_str}",
         f"  Root Password   : {'Same as user' if config.same_root_password else 'Separate'}",
         f"  Timezone        : {config.timezone}",
         f"  Locale          : {config.locale}",

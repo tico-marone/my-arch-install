@@ -35,6 +35,7 @@ from my_arch_install.runner import (
     read_appended_log_lines,
 )
 from my_arch_install.system_probe import parse_locale_gen, parse_lsblk_disks, partition_paths
+from my_arch_install.zsh_setup import ZSH_STACK_PACKAGES
 
 
 class CatalogTests(unittest.TestCase):
@@ -240,7 +241,7 @@ class RunnerAndInstallerTests(unittest.TestCase):
             clear_target_pkg_cache(tr, dry_run=False, runner=runner)
             self.assertEqual(list(pkg_dir.iterdir()), [])
 
-    def test_dry_run_pipeline(self) -> None:
+    def test_dry_run_pipeline_with_zsh_and_boot_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             log_file = Path(tmp) / "install.log"
             runner = CommandRunner(dry_run=True, log_path=log_file)
@@ -248,7 +249,8 @@ class RunnerAndInstallerTests(unittest.TestCase):
             cfg = InstallConfig(
                 hostname="arch-desktop",
                 username="alex",
-                user_password="secret",
+                user_password="s3cr3t-test-pw",
+                shell="zsh",
                 aur_helper="paru",
                 boot_silent=True,
                 boot_timeout=0,
@@ -258,6 +260,10 @@ class RunnerAndInstallerTests(unittest.TestCase):
                     "htop": SearchedPackage("extra", "htop", "3.3-1", "Interactive process viewer")
                 },
             )
+            pkgs = cfg.all_packages(catalog.required_names)
+            for zpkg in ZSH_STACK_PACKAGES:
+                self.assertIn(zpkg, pkgs)
+
             events: list[ProgressEvent] = []
             installer = ArchInstaller(cfg, catalog, runner, on_progress=events.append)
             installer.run()
@@ -269,6 +275,9 @@ class RunnerAndInstallerTests(unittest.TestCase):
                 cmds,
             )
             self.assertIn("pacstrap -K /mnt filesystem", cmds)
+            self.assertIn("useradd -m -G wheel -s /usr/bin/zsh alex", cmds)
+            self.assertIn("pkgfile --update", cmds)
+            self.assertIn("git clone https://github.com/zdharma-continuum/zinit.git", cmds)
             self.assertIn("arch-chroot -S /mnt bootctl install", cmds)
             aur_chroots = [c for c in runner.recorded_commands if "my-arch-install-aur" in c]
             self.assertEqual(len(aur_chroots), 1)
@@ -281,9 +290,12 @@ class RunnerAndInstallerTests(unittest.TestCase):
             )
             log_text = log_file.read_text(encoding="utf-8")
             self.assertIn(f"my-arch-install v{__version__}", log_text)
+            self.assertIn("WRITE /mnt/home/alex/.zshrc", log_text)
+            self.assertIn("WRITE /mnt/home/alex/.config/starship.toml", log_text)
+            self.assertIn("WRITE /mnt/home/alex/.config/atuin/config.toml", log_text)
             self.assertIn("timeout 0", log_text)
             self.assertIn(SILENT_BOOT_PARAMS, log_text)
-            self.assertNotIn("secret", log_text)
+            self.assertNotIn("s3cr3t-test-pw", log_text)
             self.assertIn("[stdin redacted]", log_text)
 
 

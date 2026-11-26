@@ -52,6 +52,7 @@ class SummaryAndCliTests(unittest.TestCase):
             hostname="arch-desktop",
             username="alex",
             user_password="secret",
+            shell="zsh",
             boot_silent=True,
             boot_timeout=0,
             target_disk=DiskInfo("sda", "/dev/sda", 256 * 1024**3, "SSD", "sata", False),
@@ -60,6 +61,7 @@ class SummaryAndCliTests(unittest.TestCase):
         )
         summary = format_install_summary(cfg, catalog)
         self.assertIn("arch-desktop", summary)
+        self.assertIn("zsh (Zinit + Starship + fzf + Atuin)", summary)
         self.assertIn("linux-zen", summary)
         self.assertIn("timeout=0s, silent=True", summary)
         self.assertIn("htop", summary)

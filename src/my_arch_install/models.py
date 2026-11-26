@@ -6,9 +6,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
+from .zsh_setup import ZSH_STACK_PACKAGES
+
 
 AurHelperChoice = Literal["none", "paru-bin", "paru"]
 MirrorMode = Literal["keep", "country", "worldwide"]
+ShellChoice = Literal["bash", "zsh"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,7 +152,8 @@ class InstallConfig:
     boot_silent: bool = False
     boot_timeout: int = 3
 
-    # Options & AUR
+    # Shell, Options & AUR
+    shell: ShellChoice = "bash"
     pacman: PacmanOptions = field(default_factory=PacmanOptions)
     mirrors: MirrorOptions = field(default_factory=MirrorOptions)
     aur_helper: AurHelperChoice = "paru-bin"
@@ -167,6 +171,8 @@ class InstallConfig:
         pkgs.update(self.selected_curated_packages)
         pkgs.update(self.custom_packages.keys())
 
+        if self.shell == "zsh":
+            pkgs.update(ZSH_STACK_PACKAGES)
         if self.pacman.enable_paccache_timer:
             pkgs.add("pacman-contrib")
         if self.mirrors.install_reflector_on_target:
